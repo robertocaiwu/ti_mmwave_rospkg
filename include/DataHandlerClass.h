@@ -81,17 +81,7 @@ private:
     float PI;
     float azimuth;
     float elevation;
-    // fmat e_r;
-    fmat v_S;
-    fmat A1;
-    fmat A2;
-    fmat A3;
-    fmat B1;
-    fmat B2;
-    fmat B3;
-    fmat A;
-    fmat B;
-    
+
     char* frameID;
     /*Contains the name of the serial port*/
     char* dataSerialPort;
