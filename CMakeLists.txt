@@ -2,7 +2,7 @@ cmake_minimum_required(VERSION 2.8.3)
 project(ti_mmwave_rospkg)
 
 ## Add support for C++11, supported in ROS Kinetic and newer
- add_definitions(-std=c++11)
+add_definitions(-std=c++11)
 
 ## Find catkin macros and libraries
 ## if COMPONENTS list like find_package(catkin REQUIRED COMPONENTS xyz)
@@ -16,6 +16,7 @@ find_package(catkin REQUIRED COMPONENTS
   message_generation
   pluginlib
 )
+find_package(Armadillo REQUIRED)
 
 find_package(Boost REQUIRED)
 
@@ -24,13 +25,13 @@ find_package(Threads REQUIRED)
 find_package(PCL 1.7.2 REQUIRED)
 
 ## System dependencies are found with CMake's conventions
-# find_package(Boost REQUIRED COMPONENTS system)
+## find_package(Boost REQUIRED COMPONENTS system)
 
 
 ## Uncomment this if the package has a setup.py. This macro ensures
 ## modules and global scripts declared therein get installed
 ## See http://ros.org/doc/api/catkin/html/user_guide/setup_dot_py.html
-# catkin_python_setup()
+## catkin_python_setup()
 
 ################################################
 ## Declare ROS messages, services and actions ##
@@ -131,10 +132,11 @@ include_directories( include
   ${PCL_INCLUDE_DIRS}
   ${pthread_INCLUDE_DIRS}
   ${rt_INCLUDE_DIRS}
+  ${ARMADILLO_INCLUDE_DIRS}
 )
 
 link_directories( ${Boost_LIBRARIES_DIRS} )
-
+link_directories( ${ARMADILLO_LIBRARIES_DIRS})
 link_directories( ${PCL_LIBRARY_DIRS} )
 
 add_definitions(${PCL_DEFINITIONS})
@@ -210,12 +212,12 @@ add_dependencies(mmwave ${${PROJECT_NAME}_EXPORTED_TARGETS} ${catkin_EXPORTED_TA
 set (CMAKE_CXX_STANDARD 11)
 
 add_executable(${PROJECT_NAME} src/mmWaveLoader.cpp)
-target_link_libraries(mmwave ${serial_LIBRARIES})
-target_link_libraries(${PROJECT_NAME} ${catkin_LIBRARIES} mmwave ${serial_LIBRARIES})
+target_link_libraries(mmwave ${serial_LIBRARIES} ${ARMADILLO_LIBRARIES})
+target_link_libraries(${PROJECT_NAME} ${catkin_LIBRARIES} mmwave ${serial_LIBRARIES} ${ARMADILLO_LIBRARIES})
 add_dependencies(${PROJECT_NAME} ${catkin_EXPORTED_TARGETS} mmwave ${serial_EXPORTED_TARGETS})
 
 add_executable(mmWaveQuickConfig src/mmWaveQuickConfig.cpp)
-target_link_libraries(mmWaveQuickConfig ${catkin_LIBRARIES} mmwave)
+target_link_libraries(mmWaveQuickConfig ${catkin_LIBRARIES} mmwave ${ARMADILLO_LIBRARIES})
 add_dependencies(mmWaveQuickConfig ${catkin_EXPORTED_TARGETS} mmwave)
 
 #############

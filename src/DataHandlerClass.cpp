@@ -1,5 +1,6 @@
 #include <DataHandlerClass.h>
 
+
 DataUARTHandler::DataUARTHandler(ros::NodeHandle* nh) : currentBufp(&pingPongBuffers[0]) , nextBufp(&pingPongBuffers[1]) {
     DataUARTHandler_pub = nh->advertise<sensor_msgs::PointCloud2>("/ti_mmwave/radar_scan_pcl", 100);
     radar_scan_pub = nh->advertise<ti_mmwave_rospkg::RadarScan>("/ti_mmwave/radar_scan", 100);
@@ -335,7 +336,6 @@ void *DataUARTHandler::sortIncomingData( void )
 
             // CHECK_TLV_TYPE code has already read tlvType and tlvLen
 
-            i = 0;
             offset = 0;
 
             if (((mmwData.header.version >> 24) & 0xFF) < 3)  // SDK version is older than 3.x
@@ -376,6 +376,9 @@ void *DataUARTHandler::sortIncomingData( void )
 
             //define PI for angle calculations afterwards
             PI = 3.14159265359;
+
+            i = 0;
+            j = 0;
 
             // Populate pointcloud
             while( i < mmwData.numObjOut ) {
@@ -488,11 +491,60 @@ void *DataUARTHandler::sortIncomingData( void )
                     odom.header.stamp = ros::Time::now();
                     if (radarscan.range > 0.11)
                     {
-                      odom.twist.twist.linear.x = -radarscan.velocity*(radarscan.range/mmwData.newObjOut.y);
-                      odom.twist.covariance[1,1] = sqrt(vvel*sqrt(pow(PI,2)*(pow(sin(elevation),2)*pow(cos(azimuth),4)
-                                                    +pow(cos(elevation),4)*pow(sin(azimuth),2))+144*pow(cos(elevation),4)*pow(cos(azimuth),4))
-                                                    /(12*abs(pow(cos(azimuth),3)*pow(cos(elevation),3))));  
-                      odom_pub.publish(odom);
+                      fmat e_r(3,1, fill::randu);
+                      // // e_r = {{radarscan.x/radarscan.range},{radarscan.y/radarscan.range},{radarscan.z/radarscan.range}};
+                      e_r(0,0) = radarscan.x/radarscan.range;
+                      e_r(1,0) = radarscan.y/radarscan.range;
+                      e_r(2,0) = radarscan.z/radarscan.range;
+                      // v_S = pinv(e_r)*radarscan.velocity;
+                      // // odom.twist.twist.linear.x = -radarscan.velocity*(radarscan.range/mmwData.newObjOut.y);
+
+
+                     j++;
+
+                     if (j == 1)
+                     {
+                       A1 = trans(e_r);
+                       B1 = -radarscan.velocity;
+                     }
+
+                     else if (j == 2)
+                     {
+                       A2 = trans(e_r);
+                       B2 = -radarscan.velocity;
+                     }
+
+                     else if (j == 3)
+                     {
+                       A3 = trans(e_r);
+                       B3 = -radarscan.velocity;
+
+                       A = join_vert(A1,A2,A3);
+                       B = join_vert(B1,B2,B3);
+
+                       v_S = solve(A,B);
+
+                       odom.twist.twist.linear.x = -v_S(0,0);
+                       odom.twist.twist.linear.y = -v_S(1,0);
+                       odom.twist.twist.linear.z = -v_S(2,0);
+
+                       odom.twist.covariance[0] = sqrt(vvel);
+                       odom.twist.covariance[7] = sqrt(vvel);
+                       odom.twist.covariance[14] = sqrt(vvel);
+
+                       odom_pub.publish(odom);
+
+                       j = 0;
+                     }
+
+                     else
+                     {
+                       ROS_INFO("j exceeds 3 and has the value [%i] !", j);
+                     }
+                      // odom.twist.covariance[0,0] = sqrt(vvel*sqrt(pow(PI,2)*(pow(sin(elevation),2)*pow(cos(azimuth),4)
+                      //                               +pow(cos(elevation),4)*pow(sin(azimuth),2))+144*pow(cos(elevation),4)*pow(cos(azimuth),4))
+                      //                               /(12*abs(pow(cos(azimuth),3)*pow(cos(elevation),3))));
+
                     }
 
 
