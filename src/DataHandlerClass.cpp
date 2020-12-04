@@ -243,11 +243,12 @@ void *DataUARTHandler::sortIncomingData( void )
     float maxAzimuthAngleRatio;
 
     //Define matrices
-    int N = 6;
-    fmat A(N,3, fill::randu);
-    fmat B(N,1, fill::randu);
+    int N;
+    fmat A(1,3, fill::zeros);
+    fmat B(1,1, fill::zeros);
     fmat e_r(3,1, fill::randu);
     fmat v_S(3,1, fill::zeros);
+    fmat v_r(1,1, fill::zeros);
 
     char method = 'C'; //Options are: A = no slip, B = pinv or C = eq_sys
 
@@ -341,6 +342,7 @@ void *DataUARTHandler::sortIncomingData( void )
 
             break;
 
+
         case READ_OBJ_STRUCT:
 
             // CHECK_TLV_TYPE code has already read tlvType and tlvLen
@@ -390,6 +392,14 @@ void *DataUARTHandler::sortIncomingData( void )
 
             i = 0;
             j = 0;
+
+            if (mmwData.numObjOut >= 3) {
+              N = mmwData.numObjOut;
+            }
+
+            else {
+              N = 0;
+            }
 
             // Populate pointcloud
             while( i < mmwData.numObjOut ) {
@@ -501,7 +511,7 @@ void *DataUARTHandler::sortIncomingData( void )
                     //Compute the linear velocity of the robot and wrtie it in odom msg
                     odom.header.stamp = ros::Time::now();
 
-                    if (radarscan.range > 0.11)
+                    if (radarscan.range > 0.20)
                     {
                       e_r(0,0) = radarscan.x/radarscan.range;
                       e_r(1,0) = radarscan.y/radarscan.range;
@@ -511,50 +521,68 @@ void *DataUARTHandler::sortIncomingData( void )
                       {
                         case 'A':
                           v_S(0,0) = -radarscan.velocity*(radarscan.range/mmwData.newObjOut.y);
+
+                          odom.twist.twist.linear.x = v_S(0,0);
+                          odom.twist.twist.linear.y = v_S(1,0);
+                          odom.twist.twist.linear.z = v_S(2,0);
+
+                          odom.twist.covariance[0] = sqrt(vvel);
+                          odom.twist.covariance[7] = sqrt(vvel);
+                          odom.twist.covariance[14] = sqrt(vvel);
+
                           break;
                         case 'B':
                           v_S = trans(pinv(e_r)*radarscan.velocity);
+
+                          odom.twist.twist.linear.x = v_S(0,0);
+                          odom.twist.twist.linear.y = v_S(1,0);
+                          odom.twist.twist.linear.z = v_S(2,0);
+
+                          odom.twist.covariance[0] = sqrt(vvel);
+                          odom.twist.covariance[7] = sqrt(vvel);
+                          odom.twist.covariance[14] = sqrt(vvel);
+
                           break;
                         case 'C':
-                          if (j == 0){
-                            // A.print("A_init:");
-                            // B.print("B_init:");
-                            A.row(j) = trans(e_r);
-                            B.row(j) = -radarscan.velocity;
-                            // e_r.print("e_r1:");
-                            j++;
-                          }
-                          else if (j < N-1) {
+                          if (j < N-1) {
                             // A.print("A_before:");
                             // B.print("B_before:");
                             // ROS_INFO("j = [%i]", j);
-                            A.row(j) = trans(e_r);
-                            B.row(j) = -radarscan.velocity;
+                            // A.row(j) = trans(e_r);
+                            // B.row(j) = -radarscan.velocity;
+                            A = join_vert(A, trans(e_r));
+                            v_r(0,0) = -radarscan.velocity;
+                            B = join_vert(B, v_r);
                             // A.print("A_after:");
                             // B.print("B_after:");
                             j++;
                           }
                           else if (j == N-1) {
-                            A.row(j) = trans(e_r);
-                            B.row(j) = -radarscan.velocity;
+                            A = join_vert(A, trans(e_r));
+                            v_r(0,0) = -radarscan.velocity;
+                            B = join_vert(B, v_r);
+
+                            A = A.rows(1,N);
+                            B = B.rows(1,N);
+
                             v_S = solve(A,B);
                             // A.print("A_end:");
                             // B.print("B_end:");
                             // v_S.print("v_S:");
-                            j = 0;
+                            odom.twist.twist.linear.x = v_S(0,0);
+                            odom.twist.twist.linear.y = v_S(1,0);
+                            odom.twist.twist.linear.z = v_S(2,0);
+
+                            odom.twist.covariance[0] = sqrt(vvel);
+                            odom.twist.covariance[7] = sqrt(vvel);
+                            odom.twist.covariance[14] = sqrt(vvel);
                           }
                           else {
                             ROS_INFO("j exceeds [%i] and has the value [%i] !", N-1, j);
                           }
                         }
 
-                      odom.twist.twist.linear.x = v_S(0,0);
-                      odom.twist.twist.linear.y = v_S(1,0);
-                      odom.twist.twist.linear.z = v_S(2,0);
 
-                      odom.twist.covariance[0] = sqrt(vvel);
-                      odom.twist.covariance[7] = sqrt(vvel);
-                      odom.twist.covariance[14] = sqrt(vvel);
 
                       odom_pub.publish(odom);
                     }
