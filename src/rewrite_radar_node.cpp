@@ -7,23 +7,12 @@
 using namespace arma;
 
 
-void imuCallback(const ti_mmwave_rospkg::RadarScan::ConstPtr& msg, const ros::Publisher pub)
+void imuCallback(const ti_mmwave_rospkg::RadarScan::ConstPtr& msg, const ros::Publisher pub, nav_msgs::Odometry odom, char method,
+                                                                          fmat A, fmat B, fmat e_r, fmat v_S, fmat v_r, int past_id)
 {
-  fmat A(1,3, fill::zeros);
-  fmat B(1,1, fill::zeros);
-  fmat e_r(3,1, fill::randu);
-  fmat v_S(3,1, fill::zeros);
-  fmat v_r(1,1, fill::zeros);
-
-  char method = 'C'; //Options are: A = no slip, B = pinv or C = eq_sys
-
-  int past_id = -1;
-
-  nav_msgs::Odometry odom;
   odom.header.frame_id = "odom";
   odom.child_frame_id = "base_link";
 
-  while (msg->point_id > past_id) {
     if (msg->range > 0.20)
     {
       e_r(0,0) = msg->x/msg->range;
@@ -99,15 +88,29 @@ void imuCallback(const ti_mmwave_rospkg::RadarScan::ConstPtr& msg, const ros::Pu
         }
       }
       past_id++;
-    }
+
+      return A
 }
 
 int main(int argc, char **argv)
 {
   ros::init(argc,argv, "rewrite_radar");
   ros::NodeHandle nh;
-
   ros::Publisher pub = nh.advertise<nav_msgs::Odometry>("radar_odom", 100);
-  ros::Subscriber sub = nh.subscribe<ti_mmwave_rospkg::RadarScan>("/ti_mmwave/radar_scan", 100, boost::bind(imuCallback, _1, pub));
+
+  fmat A(1,3, fill::zeros);
+  fmat B(1,1, fill::zeros);
+  fmat e_r(3,1, fill::randu);
+  fmat v_S(3,1, fill::zeros);
+  fmat v_r(1,1, fill::zeros);
+
+  char method = 'C'; //Options are: A = no slip, B = pinv or C = LS
+
+  int past_id = -1;
+
+  nav_msgs::Odometry odom;
+
+  ros::Subscriber sub = nh.subscribe<ti_mmwave_rospkg::RadarScan>("/ti_mmwave/radar_scan", 100, boost::bind(imuCallback, _1, pub, odom, method,
+                                                                                                            A, B, e_r, v_S, v_r, past_id));
   ros::spin();
 }
