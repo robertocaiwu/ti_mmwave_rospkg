@@ -249,6 +249,10 @@ void *DataUARTHandler::sortIncomingData( void )
     fmat e_r(3,1, fill::randu);
     fmat v_S(3,1, fill::zeros);
     fmat v_r(1,1, fill::zeros);
+    fmat W(1,1, fill::zeros);
+    fmat actual_weight(1,1, fill::zeros);
+    fmat A_weighted(3,3, fill::randu);
+    fmat B_weighted(3,1, fill::randu);
 
     char method = 'C'; //Options are: A = no slip, B = pinv or C = eq_sys
 
@@ -530,6 +534,8 @@ void *DataUARTHandler::sortIncomingData( void )
                           odom.twist.covariance[7] = sqrt(vvel);
                           odom.twist.covariance[14] = sqrt(vvel);
 
+                          odom_pub.publish(odom);
+
                           break;
                         case 'B':
                           v_S = trans(pinv(e_r)*radarscan.velocity);
@@ -542,6 +548,8 @@ void *DataUARTHandler::sortIncomingData( void )
                           odom.twist.covariance[7] = sqrt(vvel);
                           odom.twist.covariance[14] = sqrt(vvel);
 
+                          odom_pub.publish(odom);
+
                           break;
                         case 'C':
                           if (j < N-1) {
@@ -553,6 +561,8 @@ void *DataUARTHandler::sortIncomingData( void )
                             A = join_vert(A, trans(e_r));
                             v_r(0,0) = -radarscan.velocity;
                             B = join_vert(B, v_r);
+                            actual_weight(0,0) = cos(elevation)*cos(azimuth);
+                            W = join_vert(W, actual_weight);
                             // A.print("A_after:");
                             // B.print("B_after:");
                             j++;
@@ -562,12 +572,28 @@ void *DataUARTHandler::sortIncomingData( void )
                             v_r(0,0) = -radarscan.velocity;
                             B = join_vert(B, v_r);
 
+                            actual_weight(0,0) = cos(elevation)*cos(azimuth);
+                            W = join_vert(W, actual_weight);
+                            W.print("W not normalized:");
                             A = A.rows(1,N);
                             B = B.rows(1,N);
+                            A.print("A_end:");
+                            B.print("B_end:");
+                            W = W/as_scalar(sum(W)); // normalize W
+                            W.print("normalized W:");
+                            diagmat(W.rows(1,N)).print("W_end:");
+                            // trans(A).print("trans(A)");
+                            // (trans(A)*diagmat(W.rows(1,N))).print("trans(A)*W:");
+                            // (trans(A)*diagmat(W.rows(1,N))*A).print("trans(A)*W*A:");
+                            // (trans(A)*diagmat(W.rows(1,N))*B).print("trans(A)*W*B:");
 
-                            v_S = solve(A,B);
-                            // A.print("A_end:");
-                            // B.print("B_end:");
+                            A_weighted = trans(A)*diagmat(W.rows(1,N))*A;
+                            B_weighted = trans(A)*diagmat(W.rows(1,N))*B;
+
+                            A_weighted.print("A_w:");
+                            B_weighted.print("B_w:");
+
+                            v_S = solve(A_weighted,B_weighted);
                             // v_S.print("v_S:");
                             odom.twist.twist.linear.x = v_S(0,0);
                             odom.twist.twist.linear.y = v_S(1,0);
@@ -576,6 +602,13 @@ void *DataUARTHandler::sortIncomingData( void )
                             odom.twist.covariance[0] = sqrt(vvel);
                             odom.twist.covariance[7] = sqrt(vvel);
                             odom.twist.covariance[14] = sqrt(vvel);
+
+                            odom_pub.publish(odom);
+
+                            A = trans(e_r);
+                            B = v_r;
+                            W = v_r;
+
                           }
                           else {
                             ROS_INFO("j exceeds [%i] and has the value [%i] !", N-1, j);
@@ -584,7 +617,6 @@ void *DataUARTHandler::sortIncomingData( void )
 
 
 
-                      odom_pub.publish(odom);
                     }
 
 
