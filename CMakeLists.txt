@@ -15,6 +15,7 @@ find_package(catkin REQUIRED COMPONENTS
   sensor_msgs
   message_generation
   pluginlib
+  nav_msgs
 )
 find_package(Armadillo REQUIRED)
 
@@ -81,6 +82,7 @@ generate_messages(
   DEPENDENCIES
   std_msgs
   sensor_msgs
+  nav_msgs
 )
 
 ################################################
@@ -222,8 +224,7 @@ target_link_libraries(mmWaveQuickConfig ${catkin_LIBRARIES} mmwave ${ARMADILLO_L
 add_dependencies(mmWaveQuickConfig ${catkin_EXPORTED_TARGETS} mmwave)
 
 add_executable(rewrite_radar_node src/rewrite_radar_node.cpp)
-target_link_libraries(rewrite_radar_node ${catkin_LIBRARIES} mmwave ${serial_LIBRARIES} ${ARMADILLO_LIBRARIES} ${Boost_LIBRARIES})
-add_dependencies(rewrite_radar_node ${catkin_EXPORTED_TARGETS} mmwave ${serial_EXPORTED_TARGETS})
+target_link_libraries(rewrite_radar_node mmwave ${catkin_LIBRARIES} ${ARMADILLO_LIBRARIES})
 
 #############
 ## Testing ##

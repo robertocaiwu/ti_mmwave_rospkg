@@ -60,9 +60,6 @@ void Rewrite_Radar::radarCallback(const ti_mmwave_rospkg::RadarScan::ConstPtr& m
                 // B.print("B_after:");
               }
               else if (past_id > msg->point_id) {
-                A = join_vert(A, trans(e_r));
-                v_r(0,0) = -msg->velocity;
-                B = join_vert(B, v_r);
                 int N = A.n_rows;
                 A = A.rows(1,N);
                 B = B.rows(1,N);
@@ -82,7 +79,7 @@ void Rewrite_Radar::radarCallback(const ti_mmwave_rospkg::RadarScan::ConstPtr& m
 
                 A = trans(e_r);
                 B = v_r;
-
+                past_id = -1;
               }
 
             break;
@@ -142,7 +139,7 @@ void Rewrite_Radar::radarCallback(const ti_mmwave_rospkg::RadarScan::ConstPtr& m
                 A = trans(e_r);
                 B = v_r;
                 W = v_r;
-
+                past_id = 0;
               }
             break;
 
@@ -207,7 +204,7 @@ void Rewrite_Radar::radarCallback(const ti_mmwave_rospkg::RadarScan::ConstPtr& m
                 A = trans(e_r);
                 B = v_r;
                 W = v_r;
-
+                past_id = 0;
               }
             break;
           }

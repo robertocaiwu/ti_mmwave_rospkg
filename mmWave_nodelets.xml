@@ -4,13 +4,19 @@
   Command Service Nodelet
   </description>
   </class>
-  
+
   <class name="ti_mmwave_rospkg/mmWaveDataHdl" type="ti_mmwave_rospkg::mmWaveDataHdl" base_class_type="nodelet::Nodelet">
   <description>
   Data Handler Nodelet
   </description>
   </class>
-  
+
+  <!-- <class name="ti_mmwave_rospkg/rewrite_radar" type="ti_mmwave_rospkg::rewrite_radar" base_class_type="nodelet::Nodelet">
+  <description>
+  Rewrite radar scan msg to odom msg
+  </description>
+  </class>
+ -->
   <depend>serial</depend>
-  
+
 </library>
