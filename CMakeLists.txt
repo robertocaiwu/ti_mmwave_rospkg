@@ -148,6 +148,7 @@ add_library(mmwave
   src/DataHandlerClass.cpp
   src/mmWaveQuickConfig.cpp
   src/ParameterParser.cpp
+  src/rewrite_radar.cpp
 )
 
 ## Add cmake target dependencies of the library
