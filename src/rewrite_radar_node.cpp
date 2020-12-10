@@ -3,8 +3,12 @@
 int main(int argc, char **argv)
 {
   ros::init(argc,argv, "rewrite_radar");
-  Rewrite_Radar rewrite_radar;
-  rewrite_radar.initialize_variables();
-  rewrite_radar.initialize_sub_pub();
-  ros::spin();
+  fmat A_0(1,3, fill::zeros);
+  fmat B_0(3,1, fill::zeros);
+  ros::NodeHandle nh;
+  Rewrite_Radar rewrite_radar(A_0, B_0, nh);
+
+  rewrite_radar.initialize_subscriber(rewrite_radar);
+  
+  return 0;
 }
