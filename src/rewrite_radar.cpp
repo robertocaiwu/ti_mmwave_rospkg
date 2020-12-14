@@ -2,20 +2,25 @@
 
 
 void Rewrite_Radar::radarCallback(const ti_mmwave_rospkg::RadarScan::ConstPtr& msg) {
-  odom.header.frame_id = "odom";
-  odom.child_frame_id = "base_link";
-  odom.header.stamp = ros::Time::now();
-
-  elevation = msg->elevation*3.14159265359/180;
-  azimuth = msg->azimuth*3.14159265359/180;
 
   if (msg->range > 0.20)
   {
-    ROS_INFO("distance of point [%i] is enough big", msg->point_id);
+    // ROS_INFO("distance of point [%i] is enough big", msg->point_id);
+    odom.header.frame_id = "odom";
+    odom.child_frame_id = "base_link";
+    odom.header.stamp = ros::Time::now();
+
+    elevation = msg->elevation*3.14159265359/180;
+    azimuth = msg->azimuth*3.14159265359/180;
+
     e_r(0,0) = msg->x/msg->range;
     e_r(1,0) = msg->y/msg->range;
     e_r(2,0) = msg->z/msg->range;
-    e_r.print("current e_r:");
+
+    v_r(0,0) = -msg->velocity;
+
+    actual_weight(0,0) = cos(elevation)*cos(azimuth);
+    // e_r.print("current e_r:");
 
     if (method == 1) {
       v_S(0,0) = -msg->velocity*(msg->range/msg->x);
@@ -53,7 +58,6 @@ void Rewrite_Radar::radarCallback(const ti_mmwave_rospkg::RadarScan::ConstPtr& m
           ROS_INFO("past_id < point_id");
           A.print("A:");
           A = join_vert(A, trans(e_r));
-          v_r(0,0) = -msg->velocity;
           B = join_vert(B, v_r);
         }
         else if (past_id > msg->point_id) {
@@ -82,21 +86,15 @@ void Rewrite_Radar::radarCallback(const ti_mmwave_rospkg::RadarScan::ConstPtr& m
       else if (LSmethod == 2) {
         if (past_id < msg->point_id) {
           A = join_vert(A, trans(e_r));
-          v_r(0,0) = -msg->velocity;
           B = join_vert(B, v_r);
-          actual_weight(0,0) = cos(elevation)*cos(azimuth);
           W = join_vert(W, actual_weight);
         }
         else if (past_id > msg->point_id) {
-          A = join_vert(A, trans(e_r));
-          v_r(0,0) = -msg->velocity;
-          B = join_vert(B, v_r);
-          actual_weight(0,0) = cos(elevation)*cos(azimuth);
-          W = join_vert(W, actual_weight);
+
           W = W/as_scalar(sum(W)); // normalize W
-          int N = A.n_rows;
-          fmat A_weighted = trans(A)*diagmat(W.rows(1,N))*A;
-          fmat B_weighted = trans(A)*diagmat(W.rows(1,N))*B;
+
+          A_weighted = trans(A)*diagmat(W)*A;
+          B_weighted = trans(A)*diagmat(W)*B;
 
           v_S = solve(A_weighted,B_weighted);
           // v_S.print("v_S:");
@@ -111,26 +109,20 @@ void Rewrite_Radar::radarCallback(const ti_mmwave_rospkg::RadarScan::ConstPtr& m
           pub.publish(odom);
 
           A = trans(e_r);
+          v_r(0,0) = -msg->velocity;
           B = v_r;
-          W = v_r;
-          past_id = 0;
+          W = actual_weight;
+          past_id = -1;
         }
       }
 
       else if (LSmethod == 3) {
         if (past_id < msg->point_id) {
           A = join_vert(A, trans(e_r));
-          v_r(0,0) = -msg->velocity;
           B = join_vert(B, v_r);
-          actual_weight(0,0) = cos(elevation)*cos(azimuth);
           W = join_vert(W, actual_weight);
         }
         else if (past_id > msg->point_id) {
-          A = join_vert(A, trans(e_r));
-          v_r(0,0) = -msg->velocity;
-          B = join_vert(B, v_r);
-          actual_weight(0,0) = cos(elevation)*cos(azimuth);
-          W = join_vert(W, actual_weight);
           W = W/as_scalar(sum(W)); // normalize W
           // Take the 3 best measured points for LS
           uvec indices = sort_index(W, "descend");
@@ -159,7 +151,7 @@ void Rewrite_Radar::radarCallback(const ti_mmwave_rospkg::RadarScan::ConstPtr& m
 
           A = trans(e_r);
           B = v_r;
-          W = v_r;
+          W = actual_weight;
           past_id = -1;
         }
       }
