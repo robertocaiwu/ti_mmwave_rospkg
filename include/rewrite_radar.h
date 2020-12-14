@@ -6,8 +6,10 @@
 #include "nav_msgs/Odometry.h"
 #include <armadillo>
 #include <ti_mmwave_rospkg/RadarScan.h>
+// #include <iostream>
 
 using namespace arma;
+// using namespace std;
 
 class Rewrite_Radar{
 
@@ -18,14 +20,21 @@ public:
       A = A_0;
       B = B_0;
       W = B_0;
+      A_weighted = A_0;
+      B_weighted = B_0;
       e_r = trans(A_0);
       v_r = B_0;
       actual_weight = B_0;
       v_S = trans(A_0);
-
       vvel = 0.038; // radial velocity tolerance [m/s]
-      method = 3; //Options are: 1 = no slip, 2 = pinv or 3 = LS
-      LSmethod = 1; //Options are: 1 = normal, 2 = weighted, 3 = 3 best
+      method = 1; //Options are: 1 = no slip, 2 = pinv or 3 = LS
+      LSmethod = 2; //Options are: 1 = normal, 2 = weighted, 3 = 3 best
+      // ROS_INFO("Please insert method number (Options are: 1 = no slip, 2 = pinv or 3 = LS):");
+      // cin >> method;
+      // if (method = 3){
+      //   ROS_INFO("Please insert LSmethod number (Options are: 1 = normal, 2 = weighted, 3 = 3 best):");
+      //   cin >> LSmethod;
+      // }
       past_id = -1;
       pub = nh.advertise<nav_msgs::Odometry>("radar_odom", 100);
 
@@ -54,7 +63,7 @@ private:
   fmat v_S;
   uvec indices;
 
-  int method = 0;
+  int method;
   int LSmethod;
 
   float vvel;
