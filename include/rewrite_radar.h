@@ -27,7 +27,7 @@ public:
       actual_weight = B_0;
       v_S = trans(A_0);
       vvel = 0.038; // radial velocity tolerance [m/s]
-      method = 1; //Options are: 1 = no slip, 2 = pinv or 3 = LS
+      method = 3; //Options are: 1 = no slip, 2 = pinv or 3 = LS
       LSmethod = 2; //Options are: 1 = normal, 2 = weighted, 3 = 3 best
       // ROS_INFO("Please insert method number (Options are: 1 = no slip, 2 = pinv or 3 = LS):");
       // cin >> method;
