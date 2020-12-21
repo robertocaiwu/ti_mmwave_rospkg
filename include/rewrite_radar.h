@@ -6,10 +6,10 @@
 #include "nav_msgs/Odometry.h"
 #include <armadillo>
 #include <ti_mmwave_rospkg/RadarScan.h>
-// #include <iostream>
+#include <iostream>
 
 using namespace arma;
-// using namespace std;
+using namespace std;
 
 class Rewrite_Radar{
 
@@ -28,26 +28,35 @@ public:
       v_S = trans(A_0);
       vvel = 0.038; // radial velocity tolerance [m/s]
       method = 3; //Options are: 1 = no slip, 2 = pinv or 3 = LS
-      LSmethod = 2; //Options are: 1 = normal, 2 = weighted, 3 = 3 best
-      // ROS_INFO("Please insert method number (Options are: 1 = no slip, 2 = pinv or 3 = LS):");
-      // cin >> method;
-      // if (method = 3){
-      //   ROS_INFO("Please insert LSmethod number (Options are: 1 = normal, 2 = weighted, 3 = 3 best):");
-      //   cin >> LSmethod;
-      // }
+      LSmethod = 1; //Options are: 1 = normal, 2 = weighted, 3 = 3 best
       past_id = -1;
       pub = nh.advertise<nav_msgs::Odometry>("radar_odom", 100);
+
+      vel_meas = B_0;
+      az_meas = B_0;
+      el_meas = B_0;
+      actual_meas = B_0;
+      dv = 0.038;
+      N = 0;
+      delta_angle = 1e-4;
+      delta_vel = 1e-4;
 
       A.print("A initialized:");
       B.print("B initialized:");
       W.print("W initialized:");
-      ROS_INFO("vvel = [%f], method = [%i], LSmethod = [%i], past_id = [%i]", vvel, method, LSmethod, past_id);
+      ROS_INFO("vvel = [%f], method = [%i], LSmethod = [%i], past_id = [%i], delta_vel = [%f], delta_angle = [%f]",
+       vvel, method, LSmethod, past_id, delta_vel, delta_angle);
 
     };
 
   void radarCallback(const ti_mmwave_rospkg::RadarScan::ConstPtr& msg);
   // void initialize_variables();
   void initialize_subscriber(Rewrite_Radar rewrite_radar);
+
+  // for covariance computation
+  fmat approx_error_propagation();
+  fmat compute_jacobian_approx();
+  fmat compute_M(float d_angl, int I, string variable);
 
 private:
   fmat A;
@@ -77,6 +86,18 @@ private:
   ros::NodeHandle nh;
 
   nav_msgs::Odometry odom;
+
+  // for covariance computation
+  int N;
+
+  float dv;
+  float delta_angle;
+  float delta_vel;
+
+  fmat vel_meas;
+  fmat az_meas;
+  fmat el_meas;
+  fmat actual_meas;
 
 };
 

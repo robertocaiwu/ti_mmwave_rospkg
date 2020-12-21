@@ -7,7 +7,6 @@ int main(int argc, char **argv)
   fmat B_0(1,1, fill::zeros);
   ros::NodeHandle nh;
   Rewrite_Radar rewrite_radar(A_0, B_0, nh);
-
   rewrite_radar.initialize_subscriber(rewrite_radar);
 
   return 0;
