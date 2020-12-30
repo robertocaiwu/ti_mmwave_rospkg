@@ -85,6 +85,8 @@ void Rewrite_Radar::radarCallback(const ti_mmwave_rospkg::RadarScan::ConstPtr& m
           // B.print("B_end:");
 
           v_S = solve(A,B);
+          // rotate to vicon frame
+          // v_S = inv(R)*v_S;
           odom.twist.twist.linear.x = v_S(0,0);
           odom.twist.twist.linear.y = v_S(1,0);
           odom.twist.twist.linear.z = v_S(2,0);
@@ -95,16 +97,27 @@ void Rewrite_Radar::radarCallback(const ti_mmwave_rospkg::RadarScan::ConstPtr& m
           // az_meas.print("az_meas:");
           // el_meas.print("el_meas:");
           // vel_meas.print("vel_meas:");
-          fmat Cov_vS_approx = approx_error_propagation();
-          // Cov_vS_approx.print("Cov_vS_approx:");
-          int k = 0;
-          for (int i = 0; i<3; i++) {
-            for (int j = 0; j<3; j++) {
-              odom.twist.covariance[k] = Cov_vS_approx(i,j);
-              k++;
-            }
-            k = k + 3;
-          }
+
+          // fmat Cov_vS_approx = approx_error_propagation();
+          // // Cov_vS_approx.print("Cov_vS_approx:");
+          // int k = 0;
+          // for (int i = 0; i<3; i++) {
+          //   for (int j = 0; j<3; j++) {
+          //     odom.twist.covariance[k] = Cov_vS_approx(i,j);
+          //     k++;
+          //   }
+          //   k = k + 3;
+          // }
+
+          // odom.twist.covariance[0] = 0.0;
+          // odom.twist.covariance[7] = 0.0;
+          // odom.twist.covariance[14] = 0.0;
+
+          fmat var_v_S = MC_error_propagation();
+          // var_v_S.print("var_v_S:");
+          odom.twist.covariance[0] = var_v_S(0,0);
+          odom.twist.covariance[7] = var_v_S(1,0);
+          odom.twist.covariance[14] = var_v_S(2,0);
 
           pub.publish(odom);
 
@@ -330,5 +343,64 @@ fmat Rewrite_Radar::compute_M(float d_angl, int I, string variable) {
   }
 
   return M;
+
+}
+
+fmat Rewrite_Radar::MC_error_propagation() {
+
+  fmat az_var(N+1,1, fill::zeros);
+  fmat el_var(N+1,1, fill::zeros);
+  fmat new_az_data(N+1,1, fill::zeros);
+  fmat new_el_data(N+1,1, fill::zeros);
+  fmat new_vel_data(N+1,1, fill::zeros);
+  fmat A_new(N+1,3, fill::zeros);
+  fmat v_S_collector(3,N_MC, fill::zeros);
+
+  // cout << "N = " << N << "\n";
+  // az_meas.print("az_meas:");
+  // el_meas.print("el_meas:");
+  // vel_meas.print("vel_meas:");
+
+  // Compute variance of data
+  for (int i = 0; i<=N; i++) {
+    az_var(i,0) = K/cos(az_meas(0,i));
+    el_var(i,0) = K/cos(el_meas(0,i));
+  }
+
+  // az_var.print("az_var:");
+  // el_var.print("el_var");
+
+  // Sample N_MC times
+
+  for (int i = 0; i<N_MC; i++) {
+
+    // create new data for sampling
+    for (int j = 0; j<=N; j++) {
+      new_az_data(j,0) = randn()*sqrt(az_var(j,0))+az_meas(0,j);
+      new_el_data(j,0) = randn()*sqrt(el_var(j,0))+el_meas(0,j);
+      new_vel_data(j,0) = randn()*sqrt(vvel)+vel_meas(0,j);
+    }
+
+    // new_az_data.print("new_az_data:");
+    // new_el_data.print("new_el_data:");
+
+    // create new matrix A
+    for (int j = 0; j<=N; j++) {
+      A_new(j,0) = cos(new_az_data(j,0))*cos(new_el_data(j,0));
+      A_new(j,1) = -sin(new_az_data(j,0))*cos(new_el_data(j,0));
+      A_new(j,2) = cos(new_el_data(j,0));
+    }
+
+    // solve for radar velocity
+    v_S_collector.col(i) = solve(A_new, new_vel_data);
+
+  }
+
+  // v_S_collector.print("v_S_collector:");
+
+  fmat var_v_S = var(v_S_collector, 0, 1);
+  // fmat mean_v_S = mean(v_S_collector, 1);
+
+  return var_v_S;
 
 }
