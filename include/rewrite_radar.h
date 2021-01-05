@@ -42,7 +42,7 @@ public:
       delta_vel = 1e-4;
       K = datum::pi/12;
       cout << "K = " << K << "\n";
-      N_MC = 100;
+      N_MC = 1000;
       A.print("A initialized:");
       B.print("B initialized:");
       W.print("W initialized:");

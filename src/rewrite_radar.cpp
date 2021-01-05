@@ -51,9 +51,11 @@ void Rewrite_Radar::radarCallback(const ti_mmwave_rospkg::RadarScan::ConstPtr& m
 
     else if (method == 3) {
 
-      if (LSmethod == 1) {
+      // if (LSmethod == 1 || LSmethod == 2) {
         // ROS_INFO("point_id = [%i]", msg->point_id);
         // ROS_INFO("past_id = [%i]", past_id);
+        actual_weight(0,0) = cos(elevation)*cos(azimuth);
+
         if (past_id < msg->point_id) {
           // ROS_INFO("past_id < point_id");
           // A.print("A:");
@@ -66,6 +68,7 @@ void Rewrite_Radar::radarCallback(const ti_mmwave_rospkg::RadarScan::ConstPtr& m
             actual_meas(0,0) = elevation;
             el_meas = actual_meas;
             vel_meas = v_r;
+            W = actual_weight;
             click++;
           }
           else {
@@ -76,142 +79,180 @@ void Rewrite_Radar::radarCallback(const ti_mmwave_rospkg::RadarScan::ConstPtr& m
             actual_meas(0,0) = elevation;
             el_meas = join_horiz(el_meas, actual_meas);
             vel_meas = join_horiz(vel_meas, v_r);
+            W = join_vert(W, actual_weight);
           }
 
         }
         else if (past_id > msg->point_id) {
-          // ROS_INFO("past_id > point_id");
-          // A.print("A_end:");
-          // B.print("B_end:");
 
-          v_S = solve(A,B);
-          // rotate to vicon frame
-          // v_S = inv(R)*v_S;
-          odom.twist.twist.linear.x = v_S(0,0);
-          odom.twist.twist.linear.y = v_S(1,0);
-          odom.twist.twist.linear.z = v_S(2,0);
+          if (past_id <=1 ){
+            A = trans(e_r);
+            B = v_r;
+            past_id = -1;
 
-          //compute covariance approximation
-          N = past_id;
-          // ROS_INFO("N = [%i]", N);
-          // az_meas.print("az_meas:");
-          // el_meas.print("el_meas:");
-          // vel_meas.print("vel_meas:");
+            actual_meas(0,0) = azimuth;
+            az_meas = actual_meas;
+            actual_meas(0,0) = elevation;
+            el_meas = actual_meas;
+            vel_meas = v_r;
+            W = actual_weight;
 
-          // fmat Cov_vS_approx = approx_error_propagation();
-          // // Cov_vS_approx.print("Cov_vS_approx:");
-          // int k = 0;
-          // for (int i = 0; i<3; i++) {
-          //   for (int j = 0; j<3; j++) {
-          //     odom.twist.covariance[k] = Cov_vS_approx(i,j);
-          //     k++;
-          //   }
-          //   k = k + 3;
-          // }
+          }
+          else {
+            // ROS_INFO("past_id > point_id");
+            // A.print("A_end:");
+            // B.print("B_end:");
+            N = past_id;
+            // cout << "N = " << N << "\n";
 
-          // odom.twist.covariance[0] = 0.0;
-          // odom.twist.covariance[7] = 0.0;
-          // odom.twist.covariance[14] = 0.0;
+            if (LSmethod == 1) {
+              v_S = solve(A,B);
+            }
+            else if (LSmethod == 2) {
+              W = W/as_scalar(sum(W)); // normalize W
 
-          fmat var_v_S = MC_error_propagation();
-          // var_v_S.print("var_v_S:");
-          odom.twist.covariance[0] = var_v_S(0,0);
-          odom.twist.covariance[7] = var_v_S(1,0);
-          odom.twist.covariance[14] = var_v_S(2,0);
+              // A.print("A:");
+              // B.print("B:");
+              // diagmat(W).print("W:");
 
-          pub.publish(odom);
+              A_weighted = trans(A)*diagmat(W)*A;
+              B_weighted = trans(A)*diagmat(W)*B;
 
-          A = trans(e_r);
-          B = v_r;
-          past_id = -1;
+              v_S = solve(A_weighted,B_weighted);
 
-          actual_meas(0,0) = azimuth;
-          az_meas = actual_meas;
-          actual_meas(0,0) = elevation;
-          el_meas = actual_meas;
-          vel_meas = v_r;
+            }
+            // rotate to vicon frame
+            // v_S = inv(R)*v_S;
+            odom.twist.twist.linear.x = v_S(0,0);
+            odom.twist.twist.linear.y = v_S(1,0);
+            odom.twist.twist.linear.z = v_S(2,0);
 
-        }
+            //compute covariance approximation
+            // ROS_INFO("N = [%i]", N);
+            // az_meas.print("az_meas:");
+            // el_meas.print("el_meas:");
+            // vel_meas.print("vel_meas:");
+
+            // fmat Cov_vS_approx = approx_error_propagation();
+            // // Cov_vS_approx.print("Cov_vS_approx:");
+
+
+            // odom.twist.covariance[0] = 0.0;
+            // odom.twist.covariance[7] = 0.0;
+            // odom.twist.covariance[14] = 0.0;
+
+            fmat cov_vS = MC_error_propagation();
+            // cov_vS.print("cov_vS:");
+            // odom.twist.covariance[0] = var_v_S(0,0);
+            // odom.twist.covariance[7] = var_v_S(1,0);
+            // odom.twist.covariance[14] = var_v_S(2,0);
+
+            int k = 0;
+            for (int i = 0; i<3; i++) {
+              for (int j = 0; j<3; j++) {
+                odom.twist.covariance[k] = cov_vS(i,j);
+                k++;
+              }
+              k = k + 3;
+            }
+
+            // write size of plc in unused place
+            odom.pose.pose.position.x = N+1;
+
+            pub.publish(odom);
+
+            A = trans(e_r);
+            B = v_r;
+            past_id = -1;
+
+            actual_meas(0,0) = azimuth;
+            az_meas = actual_meas;
+            actual_meas(0,0) = elevation;
+            el_meas = actual_meas;
+            vel_meas = v_r;
+            W = actual_weight;
+          }
+
+          }
         else if (past_id == msg->point_id) {
           // ROS_INFO("past_id = point_id = [%i]", past_id);
           past_id = past_id-1;
         }
-      }
 
-      else if (LSmethod == 2) {
-        actual_weight(0,0) = cos(elevation)*cos(azimuth);
+      // else if (LSmethod == 2) {
+      //   actual_weight(0,0) = cos(elevation)*cos(azimuth);
+      //
+      //   if (past_id < msg->point_id) {
+      //     A = join_vert(A, trans(e_r));
+      //     B = join_vert(B, v_r);
+      //     W = join_vert(W, actual_weight);
+      //   }
+      //   else if (past_id > msg->point_id) {
+      //
+      //     W = W/as_scalar(sum(W)); // normalize W
+      //
+      //     A_weighted = trans(A)*diagmat(W)*A;
+      //     B_weighted = trans(A)*diagmat(W)*B;
+      //
+      //     v_S = solve(A_weighted,B_weighted);
+      //     // v_S.print("v_S:");
+      //     odom.twist.twist.linear.x = v_S(0,0);
+      //     odom.twist.twist.linear.y = v_S(1,0);
+      //     odom.twist.twist.linear.z = v_S(2,0);
+      //
+      //     odom.twist.covariance[0] = sqrt(vvel);
+      //     odom.twist.covariance[7] = sqrt(vvel);
+      //     odom.twist.covariance[14] = sqrt(vvel);
+      //
+      //     pub.publish(odom);
+      //
+      //     A = trans(e_r);
+      //     v_r(0,0) = -msg->velocity;
+      //     B = v_r;
+      //     W = actual_weight;
+      //     past_id = -1;
+      //   }
+      // }
 
-        if (past_id < msg->point_id) {
-          A = join_vert(A, trans(e_r));
-          B = join_vert(B, v_r);
-          W = join_vert(W, actual_weight);
-        }
-        else if (past_id > msg->point_id) {
-
-          W = W/as_scalar(sum(W)); // normalize W
-
-          A_weighted = trans(A)*diagmat(W)*A;
-          B_weighted = trans(A)*diagmat(W)*B;
-
-          v_S = solve(A_weighted,B_weighted);
-          // v_S.print("v_S:");
-          odom.twist.twist.linear.x = v_S(0,0);
-          odom.twist.twist.linear.y = v_S(1,0);
-          odom.twist.twist.linear.z = v_S(2,0);
-
-          odom.twist.covariance[0] = sqrt(vvel);
-          odom.twist.covariance[7] = sqrt(vvel);
-          odom.twist.covariance[14] = sqrt(vvel);
-
-          pub.publish(odom);
-
-          A = trans(e_r);
-          v_r(0,0) = -msg->velocity;
-          B = v_r;
-          W = actual_weight;
-          past_id = -1;
-        }
-      }
-
-      else if (LSmethod == 3) {
-        if (past_id < msg->point_id) {
-          A = join_vert(A, trans(e_r));
-          B = join_vert(B, v_r);
-          W = join_vert(W, actual_weight);
-        }
-        else if (past_id > msg->point_id) {
-          W = W/as_scalar(sum(W)); // normalize W
-          // Take the 3 best measured points for LS
-          uvec indices = sort_index(W, "descend");
-          fmat A_best(3,3, fill::zeros);
-          fmat B_best(3,1, fill::zeros);
-
-          // indices.print("indices:");
-          for (int i = 0 ; i<3; i++) {
-            A_best.row(i) = A.row(indices(i));
-            B_best(i,0) = B(indices(i),0);
-          }
-          // A_best.print("A_best:");
-          // B_best.print("B_best:");
-
-          v_S = solve(A_best,B_best);
-
-          odom.twist.twist.linear.x = v_S(0,0);
-          odom.twist.twist.linear.y = v_S(1,0);
-          odom.twist.twist.linear.z = v_S(2,0);
-
-          odom.twist.covariance[0] = sqrt(vvel);
-          odom.twist.covariance[7] = sqrt(vvel);
-          odom.twist.covariance[14] = sqrt(vvel);
-
-          pub.publish(odom);
-
-          A = trans(e_r);
-          B = v_r;
-          W = actual_weight;
-          past_id = -1;
-        }
-      }
+      // else if (LSmethod == 3) {
+      //   if (past_id < msg->point_id) {
+      //     A = join_vert(A, trans(e_r));
+      //     B = join_vert(B, v_r);
+      //     W = join_vert(W, actual_weight);
+      //   }
+      //   else if (past_id > msg->point_id) {
+      //     W = W/as_scalar(sum(W)); // normalize W
+      //     // Take the 3 best measured points for LS
+      //     uvec indices = sort_index(W, "descend");
+      //     fmat A_best(3,3, fill::zeros);
+      //     fmat B_best(3,1, fill::zeros);
+      //
+      //     // indices.print("indices:");
+      //     for (int i = 0 ; i<3; i++) {
+      //       A_best.row(i) = A.row(indices(i));
+      //       B_best(i,0) = B(indices(i),0);
+      //     }
+      //     // A_best.print("A_best:");
+      //     // B_best.print("B_best:");
+      //
+      //     v_S = solve(A_best,B_best);
+      //
+      //     odom.twist.twist.linear.x = v_S(0,0);
+      //     odom.twist.twist.linear.y = v_S(1,0);
+      //     odom.twist.twist.linear.z = v_S(2,0);
+      //
+      //     odom.twist.covariance[0] = sqrt(vvel);
+      //     odom.twist.covariance[7] = sqrt(vvel);
+      //     odom.twist.covariance[14] = sqrt(vvel);
+      //
+      //     pub.publish(odom);
+      //
+      //     A = trans(e_r);
+      //     B = v_r;
+      //     W = actual_weight;
+      //     past_id = -1;
+      //   }
+      // }
 
       else {
         ROS_ERROR("LSmethod does not exist!");
@@ -355,7 +396,9 @@ fmat Rewrite_Radar::MC_error_propagation() {
   fmat new_vel_data(N+1,1, fill::zeros);
   fmat A_new(N+1,3, fill::zeros);
   fmat v_S_collector(3,N_MC, fill::zeros);
-
+  fmat W_new(N+1,1, fill::zeros);
+  fmat A_weighted_new;
+  fmat B_weighted_new;
   // cout << "N = " << N << "\n";
   // az_meas.print("az_meas:");
   // el_meas.print("el_meas:");
@@ -379,28 +422,42 @@ fmat Rewrite_Radar::MC_error_propagation() {
       new_az_data(j,0) = randn()*sqrt(az_var(j,0))+az_meas(0,j);
       new_el_data(j,0) = randn()*sqrt(el_var(j,0))+el_meas(0,j);
       new_vel_data(j,0) = randn()*sqrt(vvel)+vel_meas(0,j);
-    }
 
-    // new_az_data.print("new_az_data:");
-    // new_el_data.print("new_el_data:");
+      W_new(j,0) = cos(new_az_data(j,0))*cos(new_el_data(j,0));
 
-    // create new matrix A
-    for (int j = 0; j<=N; j++) {
       A_new(j,0) = cos(new_az_data(j,0))*cos(new_el_data(j,0));
       A_new(j,1) = -sin(new_az_data(j,0))*cos(new_el_data(j,0));
       A_new(j,2) = cos(new_el_data(j,0));
     }
 
-    // solve for radar velocity
-    v_S_collector.col(i) = solve(A_new, new_vel_data);
+    // new_az_data.print("new_az_data:");
+    // new_el_data.print("new_el_data:");
+
+    if (LSmethod == 1) {
+      v_S_collector.col(i) = solve(A_new, new_vel_data);
+    }
+    else if (LSmethod == 2) {
+      W_new = W_new/as_scalar(sum(W_new)); // normalize W
+      // diagmat(W_new).print("W_new:");
+      // A_new.print("A_new");
+      A_weighted_new = trans(A_new)*diagmat(W_new)*A_new;
+      B_weighted_new = trans(A_new)*diagmat(W_new)*new_vel_data;
+
+      v_S_collector.col(i) = solve(A_weighted_new, B_weighted_new);
+    }
 
   }
 
+
+
   // v_S_collector.print("v_S_collector:");
 
-  fmat var_v_S = var(v_S_collector, 0, 1);
+  // fmat var_vS = var(v_S_collector, 0, 1);
+  // var_vS.print("var_v_S:");
+  fmat cov_vS = cov(trans(v_S_collector));
+  // cov_vS.print("cov_vS:");
   // fmat mean_v_S = mean(v_S_collector, 1);
 
-  return var_v_S;
+  return cov_vS;
 
 }
