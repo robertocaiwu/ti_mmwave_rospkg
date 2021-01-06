@@ -3,268 +3,200 @@
 
 void Rewrite_Radar::radarCallback(const ti_mmwave_rospkg::RadarScan::ConstPtr& msg) {
 
-  if (msg->range > 0.20)
-  {
-    // ROS_INFO("distance of point [%i] is enough big", msg->point_id);
-    odom.header.frame_id = "odom";
-    odom.child_frame_id = "base_link";
-    odom.header.stamp = ros::Time::now();
+  // ROS_INFO("distance of point [%i] is enough big", msg->point_id);
+  odom.header.frame_id = "odom";
+  odom.child_frame_id = "base_link";
+  odom.header.stamp = ros::Time::now();
 
-    elevation = msg->elevation*3.14159265359/180;
-    azimuth = msg->azimuth*3.14159265359/180;
+  e_r(0,0) = msg->x/msg->range;
+  e_r(1,0) = msg->y/msg->range;
+  e_r(2,0) = msg->z/msg->range;
 
-    e_r(0,0) = msg->x/msg->range;
-    e_r(1,0) = msg->y/msg->range;
-    e_r(2,0) = msg->z/msg->range;
+  v_r(0,0) = -msg->velocity;
 
-    v_r(0,0) = -msg->velocity;
+  // e_r.print("current e_r:");
 
-    // e_r.print("current e_r:");
+  if (method == 1) {
+    v_S(0,0) = -msg->velocity*(msg->range/msg->x);
 
-    if (method == 1) {
-      v_S(0,0) = -msg->velocity*(msg->range/msg->x);
+    odom.twist.twist.linear.x = v_S(0,0);
+    odom.twist.twist.linear.y = v_S(1,0);
+    odom.twist.twist.linear.z = v_S(2,0);
 
-      odom.twist.twist.linear.x = v_S(0,0);
-      odom.twist.twist.linear.y = v_S(1,0);
-      odom.twist.twist.linear.z = v_S(2,0);
+    odom.twist.covariance[0] = sqrt(vvel);
+    odom.twist.covariance[7] = sqrt(vvel);
+    odom.twist.covariance[14] = sqrt(vvel);
 
-      odom.twist.covariance[0] = sqrt(vvel);
-      odom.twist.covariance[7] = sqrt(vvel);
-      odom.twist.covariance[14] = sqrt(vvel);
+    pub.publish(odom);
+  }
 
-      pub.publish(odom);
-    }
+  else if (method == 2) {
+    v_S = trans(pinv(e_r)*msg->velocity);
 
-    else if (method == 2) {
-      v_S = trans(pinv(e_r)*msg->velocity);
+    odom.twist.twist.linear.x = v_S(0,0);
+    odom.twist.twist.linear.y = v_S(1,0);
+    odom.twist.twist.linear.z = v_S(2,0);
 
-      odom.twist.twist.linear.x = v_S(0,0);
-      odom.twist.twist.linear.y = v_S(1,0);
-      odom.twist.twist.linear.z = v_S(2,0);
+    odom.twist.covariance[0] = sqrt(vvel);
+    odom.twist.covariance[7] = sqrt(vvel);
+    odom.twist.covariance[14] = sqrt(vvel);
 
-      odom.twist.covariance[0] = sqrt(vvel);
-      odom.twist.covariance[7] = sqrt(vvel);
-      odom.twist.covariance[14] = sqrt(vvel);
+    pub.publish(odom);
+  }
 
-      pub.publish(odom);
-    }
+  else if (method == 3) {
 
-    else if (method == 3) {
+    // if (LSmethod == 1 || LSmethod == 2) {
+    elevation = msg->elevation*datum::pi/180;
+    azimuth = msg->azimuth*datum::pi/180;
+    actual_weight(0,0) = cos(elevation)*cos(azimuth);
 
-      // if (LSmethod == 1 || LSmethod == 2) {
-        // ROS_INFO("point_id = [%i]", msg->point_id);
-        // ROS_INFO("past_id = [%i]", past_id);
-        actual_weight(0,0) = cos(elevation)*cos(azimuth);
+    if (past_id < msg->point_id) {
 
-        if (past_id < msg->point_id) {
-          // ROS_INFO("past_id < point_id");
-          // A.print("A:");
-
-          if (click == 0) {
-            A = trans(e_r);
-            B = v_r;
-            actual_meas(0,0) = azimuth;
-            az_meas = actual_meas;
-            actual_meas(0,0) = elevation;
-            el_meas = actual_meas;
-            vel_meas = v_r;
-            W = actual_weight;
-            click++;
-          }
-          else {
-            A = join_vert(A, trans(e_r));
-            B = join_vert(B, v_r);
-            actual_meas(0,0) = azimuth;
-            az_meas = join_horiz(az_meas, actual_meas);
-            actual_meas(0,0) = elevation;
-            el_meas = join_horiz(el_meas, actual_meas);
-            vel_meas = join_horiz(vel_meas, v_r);
-            W = join_vert(W, actual_weight);
-          }
-
-        }
-        else if (past_id > msg->point_id) {
-
-          if (past_id <=1 ){
-            A = trans(e_r);
-            B = v_r;
-            past_id = -1;
-
-            actual_meas(0,0) = azimuth;
-            az_meas = actual_meas;
-            actual_meas(0,0) = elevation;
-            el_meas = actual_meas;
-            vel_meas = v_r;
-            W = actual_weight;
-
-          }
-          else {
-            // ROS_INFO("past_id > point_id");
-            // A.print("A_end:");
-            // B.print("B_end:");
-            N = past_id;
-            // cout << "N = " << N << "\n";
-
-            if (LSmethod == 1) {
-              v_S = solve(A,B);
-            }
-            else if (LSmethod == 2) {
-              W = W/as_scalar(sum(W)); // normalize W
-
-              // A.print("A:");
-              // B.print("B:");
-              // diagmat(W).print("W:");
-
-              A_weighted = trans(A)*diagmat(W)*A;
-              B_weighted = trans(A)*diagmat(W)*B;
-
-              v_S = solve(A_weighted,B_weighted);
-
-            }
-            // rotate to vicon frame
-            // v_S = inv(R)*v_S;
-            odom.twist.twist.linear.x = v_S(0,0);
-            odom.twist.twist.linear.y = v_S(1,0);
-            odom.twist.twist.linear.z = v_S(2,0);
-
-            //compute covariance approximation
-            // ROS_INFO("N = [%i]", N);
-            // az_meas.print("az_meas:");
-            // el_meas.print("el_meas:");
-            // vel_meas.print("vel_meas:");
-
-            // fmat Cov_vS_approx = approx_error_propagation();
-            // // Cov_vS_approx.print("Cov_vS_approx:");
-
-
-            // odom.twist.covariance[0] = 0.0;
-            // odom.twist.covariance[7] = 0.0;
-            // odom.twist.covariance[14] = 0.0;
-
-            fmat cov_vS = MC_error_propagation();
-            // cov_vS.print("cov_vS:");
-            // odom.twist.covariance[0] = var_v_S(0,0);
-            // odom.twist.covariance[7] = var_v_S(1,0);
-            // odom.twist.covariance[14] = var_v_S(2,0);
-
-            int k = 0;
-            for (int i = 0; i<3; i++) {
-              for (int j = 0; j<3; j++) {
-                odom.twist.covariance[k] = cov_vS(i,j);
-                k++;
-              }
-              k = k + 3;
-            }
-
-            // write size of plc in unused place
-            odom.pose.pose.position.x = N+1;
-
-            pub.publish(odom);
-
-            A = trans(e_r);
-            B = v_r;
-            past_id = -1;
-
-            actual_meas(0,0) = azimuth;
-            az_meas = actual_meas;
-            actual_meas(0,0) = elevation;
-            el_meas = actual_meas;
-            vel_meas = v_r;
-            W = actual_weight;
-          }
-
-          }
-        else if (past_id == msg->point_id) {
-          // ROS_INFO("past_id = point_id = [%i]", past_id);
-          past_id = past_id-1;
-        }
-
-      // else if (LSmethod == 2) {
-      //   actual_weight(0,0) = cos(elevation)*cos(azimuth);
-      //
-      //   if (past_id < msg->point_id) {
-      //     A = join_vert(A, trans(e_r));
-      //     B = join_vert(B, v_r);
-      //     W = join_vert(W, actual_weight);
-      //   }
-      //   else if (past_id > msg->point_id) {
-      //
-      //     W = W/as_scalar(sum(W)); // normalize W
-      //
-      //     A_weighted = trans(A)*diagmat(W)*A;
-      //     B_weighted = trans(A)*diagmat(W)*B;
-      //
-      //     v_S = solve(A_weighted,B_weighted);
-      //     // v_S.print("v_S:");
-      //     odom.twist.twist.linear.x = v_S(0,0);
-      //     odom.twist.twist.linear.y = v_S(1,0);
-      //     odom.twist.twist.linear.z = v_S(2,0);
-      //
-      //     odom.twist.covariance[0] = sqrt(vvel);
-      //     odom.twist.covariance[7] = sqrt(vvel);
-      //     odom.twist.covariance[14] = sqrt(vvel);
-      //
-      //     pub.publish(odom);
-      //
-      //     A = trans(e_r);
-      //     v_r(0,0) = -msg->velocity;
-      //     B = v_r;
-      //     W = actual_weight;
-      //     past_id = -1;
-      //   }
-      // }
-
-      // else if (LSmethod == 3) {
-      //   if (past_id < msg->point_id) {
-      //     A = join_vert(A, trans(e_r));
-      //     B = join_vert(B, v_r);
-      //     W = join_vert(W, actual_weight);
-      //   }
-      //   else if (past_id > msg->point_id) {
-      //     W = W/as_scalar(sum(W)); // normalize W
-      //     // Take the 3 best measured points for LS
-      //     uvec indices = sort_index(W, "descend");
-      //     fmat A_best(3,3, fill::zeros);
-      //     fmat B_best(3,1, fill::zeros);
-      //
-      //     // indices.print("indices:");
-      //     for (int i = 0 ; i<3; i++) {
-      //       A_best.row(i) = A.row(indices(i));
-      //       B_best(i,0) = B(indices(i),0);
-      //     }
-      //     // A_best.print("A_best:");
-      //     // B_best.print("B_best:");
-      //
-      //     v_S = solve(A_best,B_best);
-      //
-      //     odom.twist.twist.linear.x = v_S(0,0);
-      //     odom.twist.twist.linear.y = v_S(1,0);
-      //     odom.twist.twist.linear.z = v_S(2,0);
-      //
-      //     odom.twist.covariance[0] = sqrt(vvel);
-      //     odom.twist.covariance[7] = sqrt(vvel);
-      //     odom.twist.covariance[14] = sqrt(vvel);
-      //
-      //     pub.publish(odom);
-      //
-      //     A = trans(e_r);
-      //     B = v_r;
-      //     W = actual_weight;
-      //     past_id = -1;
-      //   }
-      // }
-
-      else {
-        ROS_ERROR("LSmethod does not exist!");
+      if (click == 0) {
+        A = trans(e_r);
+        B = v_r;
+        actual_meas(0,0) = azimuth;
+        az_meas = actual_meas;
+        actual_meas(0,0) = elevation;
+        el_meas = actual_meas;
+        vel_meas = v_r;
+        W = actual_weight;
+        click++;
       }
+      else {
+        A = join_vert(A, trans(e_r));
+        B = join_vert(B, v_r);
+        actual_meas(0,0) = azimuth;
+        az_meas = join_horiz(az_meas, actual_meas);
+        actual_meas(0,0) = elevation;
+        el_meas = join_horiz(el_meas, actual_meas);
+        vel_meas = join_horiz(vel_meas, v_r);
+        W = join_vert(W, actual_weight);
+      }
+
+    }
+    else if (past_id > msg->point_id) {
+
+      if (past_id <= 1) {
+
+      }
+      else if (past_id > 1) {
+        N = past_id;
+
+        if (LSmethod == 1) {
+          // v_S = solve(A,B);
+          bool solved = solve(v_S, A,B);
+          if (solved) {
+
+          }
+          else {
+            ROS_ERROR("Solve problem in main loop!");
+          }
+        }
+        else if (LSmethod == 2) {
+          W = W/as_scalar(sum(W)); // normalize W
+
+          A_weighted = trans(A)*diagmat(W)*A;
+          B_weighted = trans(A)*diagmat(W)*B;
+
+          // A_weighted.print("A_weighted:");
+
+          // v_S = solve(A_weighted,B_weighted);
+          bool solved = solve(v_S, A_weighted,B_weighted);
+          if (solved) {
+
+          }
+          else {
+            ROS_ERROR("Solve problem in main loop!");
+          }
+
+        }
+        else {
+          ROS_ERROR("LSmethod [%i] does not exist!", LSmethod);
+        }
+
+
+        // rotate to vicon frame
+        // v_S = inv(R)*v_S;
+        odom.twist.twist.linear.x = v_S(0,0);
+        odom.twist.twist.linear.y = v_S(1,0);
+        odom.twist.twist.linear.z = v_S(2,0);
+
+        //compute covariance approximation
+        // ROS_INFO("N = [%i]", N);
+        // az_meas.print("az_meas:");
+        // el_meas.print("el_meas:");
+        // vel_meas.print("vel_meas:");
+
+        // fmat Cov_vS_approx = approx_error_propagation();
+        // // Cov_vS_approx.print("Cov_vS_approx:");
+
+
+        // odom.twist.covariance[0] = 0.0;
+        // odom.twist.covariance[7] = 0.0;
+        // odom.twist.covariance[14] = 0.0;
+
+        fmat cov_vS = MC_error_propagation();
+        // cov_vS.print("cov_vS:");
+        // odom.twist.covariance[0] = var_v_S(0,0);
+        // odom.twist.covariance[7] = var_v_S(1,0);
+        // odom.twist.covariance[14] = var_v_S(2,0);
+
+        int k = 0;
+        for (int i = 0; i<3; i++) {
+          for (int j = 0; j<3; j++) {
+            odom.twist.covariance[k] = cov_vS(i,j);
+            k++;
+          }
+          k = k + 3;
+        }
+
+        // write size of plc in unused place
+        odom.pose.pose.position.x = N+1;
+
+        pub.publish(odom);
+
+      }
+      A = trans(e_r);
+      B = v_r;
+      past_id = -1;
+
+      actual_meas(0,0) = azimuth;
+      az_meas = actual_meas;
+      actual_meas(0,0) = elevation;
+      el_meas = actual_meas;
+      vel_meas = v_r;
+      W = actual_weight;
+
+    }
+    else if (past_id == msg->point_id) {
+      // ROS_INFO("past_id = point_id = [%i]", past_id);
+      // past_id = past_id-1;
+
+      A = trans(e_r);
+      B = v_r;
+      past_id = -1;
+
+      actual_meas(0,0) = azimuth;
+      az_meas = actual_meas;
+      actual_meas(0,0) = elevation;
+      el_meas = actual_meas;
+      vel_meas = v_r;
+      W = actual_weight;
+
     }
 
-    else {
-      ROS_ERROR("Method [%i] does not exist!", method);
-    }
+
+  }
+
+  else {
+    ROS_ERROR("Method [%i] does not exist!", method);
   }
   past_id++;
+
 }
+
 
 void Rewrite_Radar::initialize_subscriber(Rewrite_Radar rewrite_radar) {
   sub = nh.subscribe<ti_mmwave_rospkg::RadarScan>("/ti_mmwave/radar_scan", 100, &Rewrite_Radar::radarCallback, &rewrite_radar);
@@ -434,7 +366,18 @@ fmat Rewrite_Radar::MC_error_propagation() {
     // new_el_data.print("new_el_data:");
 
     if (LSmethod == 1) {
-      v_S_collector.col(i) = solve(A_new, new_vel_data);
+      // v_S_collector.col(i) = solve(A_new, new_vel_data);
+      fmat sol;
+      bool solved = solve(sol, A_new, new_vel_data);
+
+      v_S_collector.col(i) = sol;
+
+      if (solved) {
+
+      }
+      else {
+        ROS_ERROR("Solve problem in covariance!");
+      }
     }
     else if (LSmethod == 2) {
       W_new = W_new/as_scalar(sum(W_new)); // normalize W
@@ -443,7 +386,17 @@ fmat Rewrite_Radar::MC_error_propagation() {
       A_weighted_new = trans(A_new)*diagmat(W_new)*A_new;
       B_weighted_new = trans(A_new)*diagmat(W_new)*new_vel_data;
 
-      v_S_collector.col(i) = solve(A_weighted_new, B_weighted_new);
+      fmat sol;
+      bool solved = solve(sol, A_weighted_new, B_weighted_new);
+
+      v_S_collector.col(i) = sol;
+
+      if (solved) {
+
+      }
+      else {
+        ROS_ERROR("Solve problem in covariance!");
+      }
     }
 
   }
