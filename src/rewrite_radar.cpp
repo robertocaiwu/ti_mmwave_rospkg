@@ -23,25 +23,25 @@ void Rewrite_Radar::radarCallback(const ti_mmwave_rospkg::RadarScan::ConstPtr& m
     odom.twist.twist.linear.y = v_S(1,0);
     odom.twist.twist.linear.z = v_S(2,0);
 
-    odom.twist.covariance[0] = sqrt(vvel);
-    odom.twist.covariance[7] = sqrt(vvel);
-    odom.twist.covariance[14] = sqrt(vvel);
+    odom.twist.covariance[0] = vvel;
+    odom.twist.covariance[7] = vvel;
+    odom.twist.covariance[14] = vvel;
 
-    pub.publish(odom);
+    // pub.publish(odom);
   }
 
   else if (method == 2) {
-    v_S = trans(pinv(e_r)*msg->velocity);
+    v_S = -trans(pinv(e_r)*msg->velocity);
 
     odom.twist.twist.linear.x = v_S(0,0);
     odom.twist.twist.linear.y = v_S(1,0);
     odom.twist.twist.linear.z = v_S(2,0);
 
-    odom.twist.covariance[0] = sqrt(vvel);
-    odom.twist.covariance[7] = sqrt(vvel);
-    odom.twist.covariance[14] = sqrt(vvel);
+    odom.twist.covariance[0] = vvel;
+    odom.twist.covariance[7] = vvel;
+    odom.twist.covariance[14] = vvel;
 
-    pub.publish(odom);
+    // pub.publish(odom);
   }
 
   else if (method == 3) {
@@ -54,6 +54,9 @@ void Rewrite_Radar::radarCallback(const ti_mmwave_rospkg::RadarScan::ConstPtr& m
     if (past_id < msg->point_id) {
 
       if (click == 0) {
+        // cout << "past_id" << past_id << "\n";
+        // cout << "point_id" << msg->point_id << "\n";
+
         A = trans(e_r);
         B = v_r;
         actual_meas(0,0) = azimuth;
@@ -65,6 +68,9 @@ void Rewrite_Radar::radarCallback(const ti_mmwave_rospkg::RadarScan::ConstPtr& m
         click++;
       }
       else {
+      // cout << "past_id" << past_id << "\n";
+      // cout << "point_id" << msg->point_id << "\n";
+
         A = join_vert(A, trans(e_r));
         B = join_vert(B, v_r);
         actual_meas(0,0) = azimuth;
@@ -76,13 +82,38 @@ void Rewrite_Radar::radarCallback(const ti_mmwave_rospkg::RadarScan::ConstPtr& m
       }
 
     }
-    else if (past_id > msg->point_id) {
+    else if (past_id >= msg->point_id) {
 
-      if (past_id <= 1) {
+      if (past_id == 1) {
+        // cout << "past_id" << past_id << "\n";
+        // cout << "point_id" << msg->point_id << "\n";
+        // cout << "2D" << "\n";
+        // // 2D case with only x and y linear velocities
+        // // A.print("A_now:");
+        // A = A(span(0,1), span(0,1));
+        // // A.print("A_cut:");
+        // // B.print("B:");
+        // bool solved = solve(v_S, A,B);
+        // if (solved) {
+        //
+        // }
+        // else {
+        //   ROS_ERROR("Solve problem in main loop!");
+        // }
+        //
+        // odom.twist.twist.linear.x = v_S(0,0);
+        // odom.twist.twist.linear.y = v_S(1,0);
+        //
+        // odom.twist.covariance[0] = vvel;
+        // odom.twist.covariance[7] = vvel;
+        // odom.twist.covariance[14] = vvel;
 
       }
       else if (past_id > 1) {
         N = past_id;
+        // cout << "past_id" << past_id << "\n";
+        // cout << "point_id" << msg->point_id << "\n";
+        // cout << "main loop" << "\n";
 
         if (LSmethod == 1) {
           // v_S = solve(A,B);
@@ -122,15 +153,15 @@ void Rewrite_Radar::radarCallback(const ti_mmwave_rospkg::RadarScan::ConstPtr& m
 
 
         if (cov_method == 1) {
-          odom.twist.covariance[0] = sqrt(vvel);
-          odom.twist.covariance[7] = sqrt(vvel);
-          odom.twist.covariance[14] = sqrt(vvel);
+          odom.twist.covariance[0] = vvel;
+          odom.twist.covariance[7] = vvel;
+          odom.twist.covariance[14] = vvel;
         }
         else if (cov_method == 2 || cov_method == 3) {
           if (cov_method == 2) {
             cov_vS = approx_error_propagation();
           }
-          else {
+          else if (cov_method == 3) {
             cov_vS = MC_error_propagation();
           }
           int k = 0;
@@ -146,11 +177,31 @@ void Rewrite_Radar::radarCallback(const ti_mmwave_rospkg::RadarScan::ConstPtr& m
           ROS_ERROR("cov_method [%i] does not exist!", LSmethod);
         }
         // write size of plc in unused place
-        odom.pose.pose.position.x = N+1;
+        odom.pose.pose.position.x = past_id+1;
 
         pub.publish(odom);
 
       }
+      else if (past_id == msg->point_id) {
+        // cout << "past_id" << past_id << "\n";
+        // cout << "point_id" << msg->point_id << "\n";
+        // cout << "1D" << "\n";
+        //
+        // v_S = -trans(pinv(e_r)*msg->velocity);
+        //
+        // odom.twist.twist.linear.x = v_S(0,0);
+        // odom.twist.twist.linear.y = v_S(1,0);
+        // odom.twist.twist.linear.z = v_S(2,0);
+        //
+        // odom.twist.covariance[0] = vvel;
+        // odom.twist.covariance[7] = vvel;
+        // odom.twist.covariance[14] = vvel;
+      }
+
+      // // write size of plc in unused place
+      // odom.pose.pose.position.x = past_id+1;
+      //
+      // pub.publish(odom);
       A = trans(e_r);
       B = v_r;
       past_id = -1;
@@ -161,32 +212,16 @@ void Rewrite_Radar::radarCallback(const ti_mmwave_rospkg::RadarScan::ConstPtr& m
       el_meas = actual_meas;
       vel_meas = v_r;
       W = actual_weight;
-
     }
-    else if (past_id == msg->point_id) {
-      // ROS_INFO("past_id = point_id = [%i]", past_id);
-      // past_id = past_id-1;
-
-      A = trans(e_r);
-      B = v_r;
-      past_id = -1;
-
-      actual_meas(0,0) = azimuth;
-      az_meas = actual_meas;
-      actual_meas(0,0) = elevation;
-      el_meas = actual_meas;
-      vel_meas = v_r;
-      W = actual_weight;
-
-    }
-
 
   }
 
   else {
     ROS_ERROR("Method [%i] does not exist!", method);
   }
+
   past_id++;
+  // cout << "past_id++ " << "\n";
 
 }
 
@@ -389,41 +424,37 @@ fmat Rewrite_Radar::MC_error_propagation() {
   fmat W_new(N+1,1, fill::zeros);
   fmat A_weighted_new;
   fmat B_weighted_new;
-  // cout << "N = " << N << "\n";
-  // az_meas.print("az_meas:");
-  // el_meas.print("el_meas:");
-  // vel_meas.print("vel_meas:");
-
-  // Compute variance of data
-  for (int i = 0; i<=N; i++) {
-    az_var(i,0) = K/cos(az_meas(0,i));
-    el_var(i,0) = K/cos(el_meas(0,i));
-  }
-
-  // az_var.print("az_var:");
-  // el_var.print("el_var");
 
   // Sample N_MC times
-
   for (int i = 0; i<N_MC; i++) {
 
     // create new data for sampling
     for (int j = 0; j<=N; j++) {
+
+      // Compute variance of data
+      az_var(j,0) = K/cos(az_meas(0,j));
+      el_var(j,0) = K/cos(el_meas(0,j));
+
+      // az_var(j,0) = K;
+      // el_var(j,0) = K;
+
+
       new_az_data(j,0) = randn()*sqrt(az_var(j,0))+az_meas(0,j);
       new_el_data(j,0) = randn()*sqrt(el_var(j,0))+el_meas(0,j);
+      new_vel_data(j,0) = randn()*sqrt(vvel)+vel_meas(0,j);
 
-      // if ( abs(new_az_data(j,0)-az_meas(0,j)) > az_var(j,0) || abs(new_el_data(j,0)-el_meas(0,j)) > el_var(j,0) ) {
-      //     j = j-1;
-      // }
-      // else {
-        new_vel_data(j,0) = randn()*sqrt(vvel)+vel_meas(0,j);
+      if ( abs(new_az_data(j,0)-az_meas(0,j)) > az_var(j,0) || abs(new_el_data(j,0)-el_meas(0,j)) > el_var(j,0)
+      || abs(new_vel_data(j,0)-vel_meas(0,j)) > vvel) {
+          j = j-1;
+      }
+      else {
 
         W_new(j,0) = cos(new_az_data(j,0))*cos(new_el_data(j,0));
 
         A_new(j,0) = cos(new_az_data(j,0))*cos(new_el_data(j,0));
         A_new(j,1) = -sin(new_az_data(j,0))*cos(new_el_data(j,0));
         A_new(j,2) = cos(new_el_data(j,0));
-      // }
+      }
     }
 
     // new_az_data.print("new_az_data:");
