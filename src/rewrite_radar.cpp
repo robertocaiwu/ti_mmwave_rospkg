@@ -95,10 +95,10 @@ void Rewrite_Radar::radarCallback(const ti_mmwave_rospkg::RadarScan::ConstPtr& m
           }
         }
         else if (LSmethod == 2) {
-          W = W/as_scalar(sum(W)); // normalize W
+          W_norm = W/as_scalar(sum(W)); // normalize W
 
-          A_weighted = trans(A)*diagmat(W)*A;
-          B_weighted = trans(A)*diagmat(W)*B;
+          A_weighted = trans(A)*diagmat(W_norm)*A;
+          B_weighted = trans(A)*diagmat(W_norm)*B;
 
           // A_weighted.print("A_weighted:");
 
@@ -116,42 +116,35 @@ void Rewrite_Radar::radarCallback(const ti_mmwave_rospkg::RadarScan::ConstPtr& m
           ROS_ERROR("LSmethod [%i] does not exist!", LSmethod);
         }
 
-
-        // rotate to vicon frame
-        // v_S = inv(R)*v_S;
         odom.twist.twist.linear.x = v_S(0,0);
         odom.twist.twist.linear.y = v_S(1,0);
         odom.twist.twist.linear.z = v_S(2,0);
 
-        //compute covariance approximation
-        // ROS_INFO("N = [%i]", N);
-        // az_meas.print("az_meas:");
-        // el_meas.print("el_meas:");
-        // vel_meas.print("vel_meas:");
 
-        // fmat Cov_vS_approx = approx_error_propagation();
-        // // Cov_vS_approx.print("Cov_vS_approx:");
-
-
-        // odom.twist.covariance[0] = 0.0;
-        // odom.twist.covariance[7] = 0.0;
-        // odom.twist.covariance[14] = 0.0;
-
-        fmat cov_vS = MC_error_propagation();
-        // cov_vS.print("cov_vS:");
-        // odom.twist.covariance[0] = var_v_S(0,0);
-        // odom.twist.covariance[7] = var_v_S(1,0);
-        // odom.twist.covariance[14] = var_v_S(2,0);
-
-        int k = 0;
-        for (int i = 0; i<3; i++) {
-          for (int j = 0; j<3; j++) {
-            odom.twist.covariance[k] = cov_vS(i,j);
-            k++;
-          }
-          k = k + 3;
+        if (cov_method == 1) {
+          odom.twist.covariance[0] = sqrt(vvel);
+          odom.twist.covariance[7] = sqrt(vvel);
+          odom.twist.covariance[14] = sqrt(vvel);
         }
-
+        else if (cov_method == 2 || cov_method == 3) {
+          if (cov_method == 2) {
+            cov_vS = approx_error_propagation();
+          }
+          else {
+            cov_vS = MC_error_propagation();
+          }
+          int k = 0;
+          for (int i = 0; i<3; i++) {
+            for (int j = 0; j<3; j++) {
+              odom.twist.covariance[k] = cov_vS(i,j);
+              k++;
+            }
+            k = k + 3;
+          }
+        }
+        else {
+          ROS_ERROR("cov_method [%i] does not exist!", LSmethod);
+        }
         // write size of plc in unused place
         odom.pose.pose.position.x = N+1;
 
@@ -215,7 +208,7 @@ fmat Rewrite_Radar::approx_error_propagation() {
   for (int i = 0; i<=N; i++) {
     diag_cov_az(0,i) = datum::pi/(12*cos(az_meas(0,i)));
     diag_cov_el(0,i) = datum::pi/(12*cos(el_meas(0,i)));
-    diag_cov_vr(0,i) = dv;
+    diag_cov_vr(0,i) = vvel;
   }
 
   fmat diag_cov_meas = join_horiz(diag_cov_az, diag_cov_el);
@@ -242,40 +235,105 @@ fmat Rewrite_Radar::compute_jacobian_approx() {
   fmat M_plus(3,N+1, fill::zeros);
   fmat M_minus(3,N+1, fill::zeros);
   fmat M(3,N+1, fill::zeros);
+  fmat W_plus;
+  fmat W_minus;
+  fmat W_vel;
+  fmat W_plus_norm;
+  fmat W_minus_norm;
+  fmat M_plus_weighted;
+  fmat M_minus_weighted;
+  fmat b_plus_weighted;
+  fmat b_minus_weight;
+  fmat W_vel_norm;
+  fmat M_weighted;
 
-  for (int i = 0; i<=N; i++) {
-    M_plus = compute_M(delta_angle, i, "az");
-    M_minus = compute_M(-delta_angle, i, "az");
+  if (LSmethod = 1) {
+    for (int i = 0; i<=N; i++) {
+      // compute jacobian column of azimuth
+      M_plus = compute_M(delta_angle, i, "az");
+      M_minus = compute_M(-delta_angle, i, "az");
 
-    // M_plus.print("M_plus:");
-    // M_minus.print("M_minus:");
-    // trans(vel_meas).print("b:");
-    fmat F_az_i = (solve(M_plus, trans(vel_meas))-solve(M_minus, trans(vel_meas)))/delta_angle;
-    // F_az_i.print("F_az_i:");
-    F_az.col(i) = F_az_i;
+      F_az.col(i) = (solve(M_plus, trans(vel_meas))-solve(M_minus, trans(vel_meas)))/delta_angle;
+
+      // compute jacobian column of elevation
+      M_plus = compute_M(delta_angle, i, "el");
+      M_minus = compute_M(-delta_angle, i, "el");
+
+      F_el.col(i) = (solve(M_plus, trans(vel_meas))-solve(M_minus, trans(vel_meas)))/delta_angle;
+
+      // compute jacobian column of velocity
+      M = compute_M(0.0, i, "vel");
+
+      b_plus(i,0) = vel_meas(0,i) + delta_vel/2;
+      b_minus(i,0) = vel_meas(0,i) - delta_vel/2;
+
+      F_vel.col(i) = (solve(M, b_plus)-solve(M, b_minus))/delta_vel;
+    }
   }
-  // F_az.print("F_az:");
+  else if(LSmethod = 2) {
+    for (int i = 0; i<=N; i++) {
+      // compute jacobian column of azimuth
+      M_plus = compute_M(delta_angle, i, "az");
+      M_minus = compute_M(-delta_angle, i, "az");
 
-  for (int i = 0; i<=N; i++) {
-    M_plus = compute_M(delta_angle, i, "el");
-    M_minus = compute_M(-delta_angle, i, "el");
-    F_el.col(i) = (solve(M_plus, trans(vel_meas))-solve(M_minus, trans(vel_meas)))/delta_angle;
-  }
-  // F_el.print("F_el:");
+      W_plus = W;
+      W_plus(i,0) = cos(az_meas(0,i)+delta_angle/2)*cos(el_meas(0,i));
+      W_plus_norm = W_plus/as_scalar(sum(W_plus));
 
-  for (int i = 0; i<=N; i++) {
-    M = compute_M(0.0, i, "vel");
-    b_plus(i,0) = vel_meas(0,i) + delta_vel/2;
-    b_minus(i,0) = vel_meas(0,i) - delta_vel/2;
-    F_vel.col(i) = (solve(M, b_plus)-solve(M, b_minus))/delta_vel;
+      W_minus = W;
+      W_minus(i,0) = cos(az_meas(0,i)-delta_angle/2)*cos(el_meas(0,i));
+      W_minus_norm = W_minus/as_scalar(sum(W_minus));
+
+      M_plus_weighted = trans(M_plus)*diagmat(W_plus_norm)*M_plus;
+      M_minus_weighted = trans(M_minus)*diagmat(W_minus_norm)*M_minus;
+
+      b_plus_weighted = trans(M_plus)*diagmat(W_plus_norm)*trans(vel_meas);
+      b_minus_weight = trans(M_minus)*diagmat(W_minus_norm)*trans(vel_meas);
+
+      F_az.col(i) = (solve(M_plus_weighted, b_plus_weighted)-solve(M_minus_weighted, b_minus_weight))/delta_angle;
+
+      // compute jacobian column of elevation
+      M_plus = compute_M(delta_angle, i, "el");
+      M_minus = compute_M(-delta_angle, i, "el");
+
+      W_plus = W;
+      W_plus(i,0) = cos(az_meas(0,i))*cos(el_meas(0,i)+delta_angle/2);
+      W_plus_norm = W_plus/as_scalar(sum(W_plus));
+
+      W_minus = W;
+      W_minus(i,0) = cos(az_meas(0,i))*cos(el_meas(0,i)-delta_angle/2);
+      W_minus_norm = W_minus/as_scalar(sum(W_minus));
+
+      M_plus_weighted = trans(M_plus)*diagmat(W_plus_norm)*M_plus;
+      M_minus_weighted = trans(M_minus)*diagmat(W_minus_norm)*M_minus;
+
+      b_plus_weighted = trans(M_plus)*diagmat(W_plus_norm)*trans(vel_meas);
+      b_minus_weight = trans(M_minus)*diagmat(W_minus_norm)*trans(vel_meas);
+
+      F_el.col(i) = (solve(M_plus_weighted, b_plus_weighted)-solve(M_minus_weighted, b_minus_weight))/delta_angle;
+
+      // compute jacobian column of velocity
+      M = compute_M(0.0, i, "vel");
+
+      W_vel = W; //cannot use W because it is part of main loop
+      W_vel_norm = W_vel/as_scalar(sum(W_vel));
+
+      b_plus(i,0) = vel_meas(0,i) + delta_vel/2;
+      b_minus(i,0) = vel_meas(0,i) - delta_vel/2;
+
+      M_weighted = trans(M)*W_vel*M;
+
+      b_plus_weighted = trans(M)*W_vel*b_plus;
+      b_minus_weight = trans(M)*W_vel*b_minus;
+
+      F_vel.col(i) = (solve(M_weighted, b_plus_weighted)-solve(M_weighted, b_minus_weight))/delta_vel;
+    }
   }
-  // F_vel.print("F_vel:");
 
   fmat F = join_horiz(F_az, F_el);
   F = join_horiz(F, F_vel);
 
   return F;
-
 }
 
 fmat Rewrite_Radar::compute_M(float d_angl, int I, string variable) {
@@ -353,13 +411,19 @@ fmat Rewrite_Radar::MC_error_propagation() {
     for (int j = 0; j<=N; j++) {
       new_az_data(j,0) = randn()*sqrt(az_var(j,0))+az_meas(0,j);
       new_el_data(j,0) = randn()*sqrt(el_var(j,0))+el_meas(0,j);
-      new_vel_data(j,0) = randn()*sqrt(vvel)+vel_meas(0,j);
 
-      W_new(j,0) = cos(new_az_data(j,0))*cos(new_el_data(j,0));
+      // if ( abs(new_az_data(j,0)-az_meas(0,j)) > az_var(j,0) || abs(new_el_data(j,0)-el_meas(0,j)) > el_var(j,0) ) {
+      //     j = j-1;
+      // }
+      // else {
+        new_vel_data(j,0) = randn()*sqrt(vvel)+vel_meas(0,j);
 
-      A_new(j,0) = cos(new_az_data(j,0))*cos(new_el_data(j,0));
-      A_new(j,1) = -sin(new_az_data(j,0))*cos(new_el_data(j,0));
-      A_new(j,2) = cos(new_el_data(j,0));
+        W_new(j,0) = cos(new_az_data(j,0))*cos(new_el_data(j,0));
+
+        A_new(j,0) = cos(new_az_data(j,0))*cos(new_el_data(j,0));
+        A_new(j,1) = -sin(new_az_data(j,0))*cos(new_el_data(j,0));
+        A_new(j,2) = cos(new_el_data(j,0));
+      // }
     }
 
     // new_az_data.print("new_az_data:");
