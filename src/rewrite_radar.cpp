@@ -8,6 +8,12 @@ void Rewrite_Radar::radarCallback(const ti_mmwave_rospkg::RadarScan::ConstPtr& m
   odom.child_frame_id = "base_link";
   odom.header.stamp = ros::Time::now();
 
+  // save azimuth and elevation for plotting
+  odom.pose.pose.orientation.x = msg->azimuth;
+  odom.pose.pose.orientation.y = msg->elevation;
+
+
+
   e_r(0,0) = msg->x/msg->range;
   e_r(1,0) = msg->y/msg->range;
   e_r(2,0) = msg->z/msg->range;
@@ -243,6 +249,20 @@ void Rewrite_Radar::radarCallback(const ti_mmwave_rospkg::RadarScan::ConstPtr& m
           else if (cov_method == 1 || cov_method == 3) {
             cov_vS = MC_error_propagation();
           }
+	  else if(cov_method == 4) {
+	    fmat e = A*v_S - B;
+	    e.print("estimation error: ");
+	    int dim = B.n_rows;
+	    cout << "system dimension: " << dim << "\n";
+	    if (dim == 3) {
+            	cov_vS = MC_error_propagation();
+	    }
+	    else {
+	    	cov_vS = as_scalar(trans(e)*e)*inv(trans(A)*A)/(dim-3);
+	    }
+
+	    cov_vS.print("cov_vS:");
+	  }
           else {
             ROS_ERROR("cov_method [%i] does not exist!", LSmethod);
           }
@@ -261,65 +281,65 @@ void Rewrite_Radar::radarCallback(const ti_mmwave_rospkg::RadarScan::ConstPtr& m
         // pub.publish(odom);
       }
       else if (past_id == msg->point_id) {
-        // cout << "past_id" << past_id << "\n";
-        // cout << "point_id" << msg->point_id << "\n";
-        // cout << "1D" << "\n";
+        // // cout << "past_id" << past_id << "\n";
+        // // cout << "point_id" << msg->point_id << "\n";
+        // // cout << "1D" << "\n";
 
-        v_S = -trans(pinv(e_r)*msg->velocity);
+        // v_S = -trans(pinv(e_r)*msg->velocity);
 
-        odom.twist.twist.linear.x = v_S(0,0);
-        odom.twist.twist.linear.y = -v_S(1,0);
-        odom.twist.twist.linear.z = v_S(2,0);
+        // odom.twist.twist.linear.x = v_S(0,0);
+        // odom.twist.twist.linear.y = -v_S(1,0);
+        // odom.twist.twist.linear.z = v_S(2,0);
 
-        if (cov_method == 1 || cov_method == 2) {
-          odom.twist.covariance[0] = vvel;
-          odom.twist.covariance[7] = vvel;
-          odom.twist.covariance[14] = vvel;
-        }
-        else if (cov_method == 3) {
-          //MC sampling
-          float var_az = K/(12*cos(az_meas(0,0)));
-          float var_el = K/(12*cos(el_meas(0,0)));
-          // float var_az = K;
-          // float var_el = K;
+        // if (cov_method == 1 || cov_method == 2) {
+        //   odom.twist.covariance[0] = vvel;
+        //   odom.twist.covariance[7] = vvel;
+        //   odom.twist.covariance[14] = vvel;
+        // }
+        // else if (cov_method == 3) {
+        //   //MC sampling
+        //   float var_az = K/(12*cos(az_meas(0,0)));
+        //   float var_el = K/(12*cos(el_meas(0,0)));
+        //   // float var_az = K;
+        //   // float var_el = K;
 
-          float new_az_data;
-          float new_el_data;
-          float new_vel_data;
-          fmat new_e_r(3,1, fill::zeros);
-          fmat v_S_collector(3,N_MC, fill::zeros);
+        //   float new_az_data;
+        //   float new_el_data;
+        //   float new_vel_data;
+        //   fmat new_e_r(3,1, fill::zeros);
+        //   fmat v_S_collector(3,N_MC, fill::zeros);
 
-          for (int i = 0; i<N_MC; i++) {
-            new_az_data = randn()*sqrt(var_az)+az_meas(0,0);
-            new_el_data = randn()*sqrt(var_el)+el_meas(0,0);
-            new_vel_data = randn()*sqrt(vvel)+vel_meas(0,0);
+        //   for (int i = 0; i<N_MC; i++) {
+        //     new_az_data = randn()*sqrt(var_az)+az_meas(0,0);
+        //     new_el_data = randn()*sqrt(var_el)+el_meas(0,0);
+        //     new_vel_data = randn()*sqrt(vvel)+vel_meas(0,0);
 
-            while ( abs(new_az_data-az_meas(0,0)) > var_az || abs(new_el_data-el_meas(0,0)) > var_el
-            || abs(new_vel_data-vel_meas(0,0)) > vvel) {
-              new_az_data = randn()*sqrt(var_az)+az_meas(0,0);
-              new_el_data = randn()*sqrt(var_el)+el_meas(0,0);
-              new_vel_data = randn()*sqrt(vvel)+vel_meas(0,0);
-            }
+        //     while ( abs(new_az_data-az_meas(0,0)) > var_az || abs(new_el_data-el_meas(0,0)) > var_el
+        //     || abs(new_vel_data-vel_meas(0,0)) > vvel) {
+        //       new_az_data = randn()*sqrt(var_az)+az_meas(0,0);
+        //       new_el_data = randn()*sqrt(var_el)+el_meas(0,0);
+        //       new_vel_data = randn()*sqrt(vvel)+vel_meas(0,0);
+        //     }
 
-            new_e_r(0,0) = cos(new_az_data)*cos(new_el_data);
-            new_e_r(1,0) = -sin(new_az_data)*cos(new_el_data);
-            new_e_r(2,0) = cos(new_el_data);
+        //     new_e_r(0,0) = cos(new_az_data)*cos(new_el_data);
+        //     new_e_r(1,0) = -sin(new_az_data)*cos(new_el_data);
+        //     new_e_r(2,0) = cos(new_el_data);
 
-            v_S_collector.col(i) = trans(pinv(new_e_r)*new_vel_data);
-          }
+        //     v_S_collector.col(i) = trans(pinv(new_e_r)*new_vel_data);
+        //   }
 
-          // fmat cov_vS = cov(trans(v_S_collector));
-          fmat mean_v_S = mean(v_S_collector, 1);
-          fmat cov_vS = diagmat(mean_v_S);
-          int k = 0;
-          for (int i = 0; i<3; i++) {
-            for (int j = 0; j<3; j++) {
-              odom.twist.covariance[k] = cov_vS(i,j);
-              k++;
-            }
-            k = k + 3;
-          }
-        }
+        //   // fmat cov_vS = cov(trans(v_S_collector));
+        //   fmat mean_v_S = mean(v_S_collector, 1);
+        //   fmat cov_vS = diagmat(mean_v_S);
+        //   int k = 0;
+        //   for (int i = 0; i<3; i++) {
+        //     for (int j = 0; j<3; j++) {
+        //       odom.twist.covariance[k] = cov_vS(i,j);
+        //       k++;
+        //     }
+        //     k = k + 3;
+        //   }
+        // }
       }
 
       // write size of plc in unused place
@@ -380,7 +400,7 @@ fmat Rewrite_Radar::approx_error_propagation() {
 
   fmat Cov_vS_eval = F*Cov_meas*trans(F);
 
-  return diagmat(Cov_vS_eval);
+  return Cov_vS_eval*cov_param;
 
 }
 
@@ -663,6 +683,7 @@ fmat Rewrite_Radar::MC_error_propagation() {
     }
 
   }
+  
 
 
 
@@ -670,14 +691,31 @@ fmat Rewrite_Radar::MC_error_propagation() {
 
   // fmat var_vS = var(v_S_collector, 0, 1);
   // var_vS.print("var_v_S:");
-  // fmat cov_vS = cov(trans(v_S_collector));
+  fmat cov_vS = cov(trans(v_S_collector));
   // cov_vS.print("cov_vS:");
   // if (past_id == 1) {
   //   v_S_collector.print("v_S_collector:");
   // }
-  fmat mean_v_S = mean(v_S_collector, 1);
+  // fmat mean_v_S = mean(v_S_collector, 1);
   // mean_v_S.print("mean_v_S:");
 
-  return diagmat(mean_v_S);
+  return cov_vS*cov_param;
+
+}
+
+fmat Rewrite_Radar::RANSAC() {
+  srand (time(NULL));
+  int i = 0;
+  fmat measu_sum(1,3, fill::zeros);
+  fmat extr_meas(3,3, fill::zeros);
+  
+  while (i<k)
+  {
+    // extract 3 random measurements
+    meas_num = round(rand(1,3)*N); // array with rendomly chosen measurements number
+     
+
+  }
+  
 
 }

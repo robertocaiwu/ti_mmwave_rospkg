@@ -28,8 +28,9 @@ public:
       v_S = trans(A_0);
       vvel = 0.038; // radial velocity tolerance [m/s]
       method = 3; //Options are: 1 = no slip, 2 = pinv or 3 = LS
-      LSmethod = 2; //Options are: 1 = normal, 2 = weighted
-      cov_method = 3; // Options are: 1 = const, 2 = linearisation, 3 = Monte Carlo
+      LSmethod = 1; //Options are: 1 = normal, 2 = weighted
+      cov_method = 1; // Options are: 1 = const, 2 = linearisation, 3 = Monte Carlo, 4 = paper_method
+      cov_param = 1;
       past_id = -1;
       pub = nh.advertise<nav_msgs::Odometry>("radar_odom", 100);
       click = 0;
@@ -61,6 +62,8 @@ public:
 
   fmat MC_error_propagation();
 
+  fmat RANSAC();
+
 private:
   fmat A;
   fmat B;
@@ -82,6 +85,7 @@ private:
   int LSmethod;
   int cov_method;
   int click;
+  float cov_param;
 
   float K;
   int N_MC;
