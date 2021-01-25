@@ -180,7 +180,7 @@ fmat Rewrite_Radar::approx_error_propagation() {
   Cov_vS_eval = Cov_vS_eval(span(0,1), span(0,1));
 
 
-  return Cov_vS_eval;
+  return Cov_vS_eval*cov_param;
 
 }
 
@@ -351,49 +351,31 @@ fmat Rewrite_Radar::MC_error_propagation() {
   fmat W_new(N+1,1, fill::zeros);
   fmat A_weighted_new;
   fmat B_weighted_new;
+  fmat B_new;
   int c;
   float vr_std = vvel/3;
 
   // Sample N_MC times
   for (int i = 0; i<N_MC; i++) {
 
-    // create new data for sampling
+    // create new data
     for (int j = 0; j<=N; j++) {
 
-      // Compute variance of data
-      // if (past_id==1) {
-      //   az_meas.print("az_meas:");
-      //   el_meas.print("el_meas:");
-      //   cout << "N = " << N << "\n";
-      //   cout << "j = " << j << "\n";
-      // }
-      if (cov_method == 1) {
-        az_std(j,0) = K/3;
-        el_std(j,0) = K/3;
-        az_res(j,0) = K;
-        el_res(j,0) = K;
+      // Compute standard deviation and resolution of data 
+      az_res(j,0) = K/cos(az_meas(0,j));
+      el_res(j,0) = K/cos(el_meas(0,j));
+      az_std(j,0) = az_res(j,0)/3;
+      el_std(j,0) = el_res(j,0)/3;
 
-      }
-      else if (cov_method == 3) {
-        az_std(j,0) = (K/cos(az_meas(0,j)))/3;
-        el_std(j,0) = (K/cos(el_meas(0,j)))/3;
-        az_res(j,0) = K/cos(az_meas(0,j));
-        el_res(j,0) = K/cos(el_meas(0,j));
-      }
-      // if (past_id == 1) {
-      //   cout << "variance" << "\n";
-      // }
-
-      // cout << "std" << "\n";
+      // sample new hypothetical data
       new_az_data(j,0) = randn()*az_std(j,0)+az_meas(0,j);
       new_el_data(j,0) = randn()*el_std(j,0)+el_meas(0,j);
       new_vel_data(j,0) = randn()*vr_std+vel_meas(0,j);
 
-      // cout << "new data" << "\n";
+      c = 0;
       if ( abs(new_az_data(j,0)-az_meas(0,j)) > az_res(j,0) || abs(new_el_data(j,0)-el_meas(0,j)) > el_res(j,0)
       || abs(new_vel_data(j,0)-vel_meas(0,j)) > vvel && c<100) {
-        // cout << "outliers found" << "\n";
-        c = 0;
+  
         while ( abs(new_az_data(j,0)-az_meas(0,j)) > az_res(j,0) || abs(new_el_data(j,0)-el_meas(0,j)) > el_res(j,0)
         || abs(new_vel_data(j,0)-vel_meas(0,j)) > vvel && c<100) {
         new_az_data(j,0) = randn()*az_std(j,0)+az_meas(0,j);
@@ -401,98 +383,34 @@ fmat Rewrite_Radar::MC_error_propagation() {
         new_vel_data(j,0) = randn()*vr_std+vel_meas(0,j);
         c++;
         }
+
       }
-      // cout << "no outliers" << "\n";
 
       W_new(j,0) = cos(new_az_data(j,0))*cos(new_el_data(j,0));
 
-      if (past_id == 1) {
-        A_new(j,0) = cos(new_az_data(j,0))*cos(new_el_data(j,0));
-        A_new(j,1) = -sin(new_az_data(j,0))*cos(new_el_data(j,0));
-      }
-      else {
-        A_new(j,0) = cos(new_az_data(j,0))*cos(new_el_data(j,0));
-        A_new(j,1) = -sin(new_az_data(j,0))*cos(new_el_data(j,0));
-        A_new(j,2) = cos(new_el_data(j,0));
-      }
+      A_new(j,0) = cos(new_az_data(j,0))*cos(new_el_data(j,0));
+      A_new(j,1) = sin(new_az_data(j,0))*cos(new_el_data(j,0));
+      A_new(j,2) = sin(new_el_data(j,0));
 
+      B_new = new_vel_data;
     }
-
-    if (past_id == 1) {
-      // A_new.print("A_new before:");
-      A_new = A_new(span(0,1), span(0,1));
-      // A_new.print("A_new cut:");
-    }
-
-    // new_az_data.print("new_az_data:");
-    // new_el_data.print("new_el_data:");
 
     if (LSmethod == 1) {
-      // v_S_collector.col(i) = solve(A_new, new_vel_data);
-      fmat sol;
-      bool solved = solve(sol, A_new, new_vel_data);
-
-      if (past_id == 1) {
-        fmat zero(1,1, fill::zeros);
-        sol = join_vert(sol, zero);
-        // sol.print("sol:");
-      }
-
-
-      v_S_collector.col(i) = sol;
-      // if (past_id==1) {
-      //   v_S_collector.print("v_S_collector:");
-      // }
-      if (solved) {
-
-      }
-      else {
-        ROS_ERROR("Solve problem in covariance!");
-      }
+      v_S_collector.col(i) = solve(A_new, B_new);
     }
     else if (LSmethod == 2) {
       W_new = W_new/as_scalar(sum(W_new)); // normalize W
-      // diagmat(W_new).print("W_new:");
-      // A_new.print("A_new");
+
       A_weighted_new = trans(A_new)*diagmat(W_new)*A_new;
       B_weighted_new = trans(A_new)*diagmat(W_new)*new_vel_data;
 
-      fmat sol;
-      bool solved = solve(sol, A_weighted_new, B_weighted_new);
+      v_S_collector.col(i) = solve(A_weighted_new, B_weighted_new);
 
-      if (past_id == 1) {
-        fmat zero(1,1, fill::zeros);
-        sol = join_vert(sol, zero);
-      }
-
-      // sol.print("sol");
-
-      v_S_collector.col(i) = sol;
-
-      if (solved) {
-
-      }
-      else {
-        ROS_ERROR("Solve problem in covariance!");
-      }
     }
 
   }
   
-
-
-
-  // v_S_collector.print("v_S_collector:");
-
-  // fmat var_vS = var(v_S_collector, 0, 1);
-  // var_vS.print("var_v_S:");
   fmat cov_vS = cov(trans(v_S_collector));
-  // cov_vS.print("cov_vS:");
-  // if (past_id == 1) {
-  //   v_S_collector.print("v_S_collector:");
-  // }
-  // fmat mean_v_S = mean(v_S_collector, 1);
-  // mean_v_S.print("mean_v_S:");
 
   cov_vS = cov_vS(span(0,1), span(0,1));
 
