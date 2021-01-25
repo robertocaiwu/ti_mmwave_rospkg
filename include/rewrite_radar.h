@@ -4,6 +4,7 @@
 
 #include "ros/ros.h"
 #include "nav_msgs/Odometry.h"
+#include "sensor_msgs/Imu.h"
 #include <armadillo>
 #include <ti_mmwave_rospkg/RadarScan.h>
 #include <iostream>
@@ -17,6 +18,8 @@ public:
 
   Rewrite_Radar(fmat A_0, fmat B_0, ros::NodeHandle nh)
     {
+      angl_vel = {0, 0, 0};
+      r_r2i = {38e-3, 9e-3, -110.4e-3};
       A = A_0;
       B = B_0;
       W = B_0;
@@ -29,16 +32,19 @@ public:
       vvel = 0.038; // radial velocity tolerance [m/s]
       method = 3; //Options are: 1 = no slip, 2 = pinv or 3 = LS
       LSmethod = 1; //Options are: 1 = normal, 2 = weighted
-      cov_method = 1; // Options are: 1 = const, 2 = linearisation, 3 = Monte Carlo, 4 = paper_method
-      cov_param = 1;
+      cov_method = 3; // Options are: 1 = const, 2 = linearisation, 3 = Monte Carlo, 4 = paper_method
+      cov_param = 1.0;
+      ransac = true; // true is with RANSAC, false without RANSAC
       past_id = -1;
       pub = nh.advertise<nav_msgs::Odometry>("radar_odom", 100);
+      points_pub = nh.advertise<nav_msgs::Odometry>("plc_info", 100);
       click = 0;
       vel_meas = B_0;
       az_meas = B_0;
       el_meas = B_0;
       actual_meas = B_0;
       N = 0;
+      N_opt = 0;
       delta_angle = 1e-4;
       delta_vel = 1e-4;
       K = datum::pi/12;
@@ -47,11 +53,12 @@ public:
       A.print("A initialized:");
       B.print("B initialized:");
       W.print("W initialized:");
-      ROS_INFO("vvel = [%f], method = [%i], LSmethod = [%i], cov_method = [%i], past_id = [%i], delta_vel = [%f], delta_angle = [%f]",
-       vvel, method, LSmethod, cov_method, past_id, delta_vel, delta_angle);
+      ROS_INFO("vvel = [%f], method = [%i], LSmethod = [%i], cov_method = [%i], ransac = [%i] past_id = [%i], delta_vel = [%f], delta_angle = [%f]",
+       vvel, method, LSmethod, cov_method, ransac, past_id, delta_vel, delta_angle);
     };
 
   void radarCallback(const ti_mmwave_rospkg::RadarScan::ConstPtr& msg);
+  void imuCallback(const sensor_msgs::Imu::ConstPtr& msg);
   // void initialize_variables();
   void initialize_subscriber(Rewrite_Radar rewrite_radar);
 
@@ -77,10 +84,14 @@ private:
   fmat e_r;
   fmat v_r;
   fmat v_S;
+  vec v_B;
   fmat cov_vS;
   uvec indices;
   fmat R;
+  vec angl_vel;
+  vec r_r2i; //position vector from radar to imu frame
 
+  bool ransac;
   int method;
   int LSmethod;
   int cov_method;
@@ -96,13 +107,16 @@ private:
 
   int past_id;
 
+  ros::Publisher points_pub;
   ros::Publisher pub;
   ros::Subscriber sub;
+  ros::Subscriber sub_imu;
   ros::NodeHandle nh;
   nav_msgs::Odometry odom;
-
+  nav_msgs::Odometry plc_info;
   // for covariance computation
   int N;
+  int N_opt;
 
   float dv;
   float delta_angle;
