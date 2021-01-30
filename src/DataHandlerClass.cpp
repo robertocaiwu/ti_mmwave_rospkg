@@ -504,11 +504,11 @@ void *DataUARTHandler::sortIncomingData( void )
                     radarscan.z = mmwData.newObjOut.z;
                     radarscan.range = sqrt(radarscan.x*radarscan.x+radarscan.y*radarscan.y+radarscan.z*radarscan.z);
                     radarscan.velocity = mmwData.newObjOut.velocity;
-                    radarscan.doppler_bin = tmp;
-                    radarscan.bearing = temp[6];
-                    radarscan.intensity = temp[5];
+                    // radarscan.doppler_bin = tmp;
+                    // radarscan.bearing = temp[6];
+                    // radarscan.intensity = temp[5];
 
-                    Compute azimuth and elevation angle of each point
+                    // Compute azimuth and elevation angle of each point
                     elevation = asin(mmwData.newObjOut.z/radarscan.range);
                     azimuth = asin(mmwData.newObjOut.x/(radarscan.range*cos(elevation)));
 

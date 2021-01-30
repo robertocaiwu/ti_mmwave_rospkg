@@ -13,10 +13,6 @@ void Rewrite_Radar::radarCallback(const ti_mmwave_rospkg::RadarScan::ConstPtr& m
   odom.child_frame_id = "base_link";
   odom.header.stamp = ros::Time::now();
 
-  // save azimuth and elevation for plotting
-  plc_info.pose.pose.orientation.x = msg->azimuth;
-  plc_info.pose.pose.orientation.y = msg->elevation;
-
   e_r(0,0) = msg->x/msg->range;
   e_r(1,0) = msg->y/msg->range;
   e_r(2,0) = msg->z/msg->range;
@@ -55,9 +51,11 @@ void Rewrite_Radar::radarCallback(const ti_mmwave_rospkg::RadarScan::ConstPtr& m
   else if (past_id >= msg->point_id) { // The new point is part of a new pointcloud, estimate the velocity and covariance 
                                        // now that all the information about the old plc are saved.
 
+    N = past_id;
+    N_opt = -1;
+
     if (past_id > 1) { // The estimator works only if there were at least 3 points in the plc
 
-      N = past_id;
 
       // Estimate the radar velocity vector
 
@@ -79,6 +77,12 @@ void Rewrite_Radar::radarCallback(const ti_mmwave_rospkg::RadarScan::ConstPtr& m
         else {
         ROS_ERROR("LSmethod [%i] does not exist!", LSmethod);
         }
+
+        // calculate the MSE of the velocity estimation
+        fmat error = abs(A*v_S)-B;
+        double MSE_vS = as_scalar(trans(error)*error)/(N+1);
+        odom.pose.pose.orientation.w = MSE_vS;
+
       }
 
 
@@ -92,7 +96,7 @@ void Rewrite_Radar::radarCallback(const ti_mmwave_rospkg::RadarScan::ConstPtr& m
       if (cov_method == 1) { // Zero covariance method
         cov_vS = {{0.0, 0.0}, {0.0, 0.0}};
       }
-      if (cov_method == 2) { // System linearization method
+      else if (cov_method == 2) { // System linearization method
         cov_vS = approx_error_propagation();
       }
       else if (cov_method == 3) { // Monte Carlo sampling
@@ -122,6 +126,9 @@ void Rewrite_Radar::radarCallback(const ti_mmwave_rospkg::RadarScan::ConstPtr& m
     // Publish information about plc
     // write size of plc in unused place
     plc_info.pose.pose.position.x = past_id+1;
+    plc_info.pose.pose.position.y = outliers;
+    plc_info.pose.pose.position.z = N_opt+1;
+
     plc_info.header.stamp = ros::Time::now();
     points_pub.publish(plc_info);
 
@@ -160,9 +167,9 @@ fmat Rewrite_Radar::approx_error_propagation() {
   // Create measurement covariance matrix
   // calculate the variance of each measurement data and save it into a vector for each data type
   for (int i = 0; i<=N; i++) {
-    diag_cov_az(0,i) = ((K/(cos(az_meas(0,i))))/3)^2;
-    diag_cov_el(0,i) = ((K/(cos(el_meas(0,i))))/3)^2;
-    diag_cov_vr(0,i) = (vvel/3)^2;
+    diag_cov_az(0,i) = ((K/(cos(az_meas(0,i))))/3)*((K/(cos(az_meas(0,i))))/3);
+    diag_cov_el(0,i) = ((K/(cos(el_meas(0,i))))/3)*((K/(cos(el_meas(0,i))))/3);
+    diag_cov_vr(0,i) = (vvel/3)*(vvel/3);
   }
   // combine the vector horizontally to one
   fmat diag_cov_meas = join_horiz(diag_cov_az, diag_cov_el);
@@ -335,6 +342,7 @@ fmat Rewrite_Radar::compute_M(float d_angl, int I, string variable) {
   return M;
 
 }
+
 fmat Rewrite_Radar::MC_error_propagation() {
 
 
@@ -419,21 +427,16 @@ fmat Rewrite_Radar::MC_error_propagation() {
 }
 
 fmat Rewrite_Radar::RANSAC() {
-  int outliers = 0;
   fmat error;
-  fmat A_opt = A;
-  fmat B_opt = B;
-  fmat W_opt = W;
   fmat vS_opt;
   fmat e_sorted;
-  bool outlier_found = false;
   uvec sorted_index;
   int t;
   fmat A_opt_up;
   fmat A_opt_down;
   fmat B_opt_up;
   fmat B_opt_down;
-  float final_MSE;
+  double final_MSE;
   fmat az_meas_left;
   fmat az_meas_right;
   fmat el_meas_left;
@@ -446,7 +449,14 @@ fmat Rewrite_Radar::RANSAC() {
   fmat W_opt_up;
   fmat W_opt_down;
 
+  fmat A_opt = A;
+  fmat B_opt = B;
+  fmat W_opt = W;
+  bool outlier_found = false;
+
+  outliers = 0;
   N_opt = N;
+
 
   for(int i = 0; i<N; i++) {
 
@@ -466,11 +476,10 @@ fmat Rewrite_Radar::RANSAC() {
     //compute error
     error = abs(A_opt*vS_opt-B_opt);
 
-    if (N_opt == 2) {
-      final_MSE = as_scalar(sqrt(trans(error)*error));
-      odom.pose.pose.orientation.w = final_MSE;
-      plc_info.pose.pose.position.y = outliers;
-      plc_info.pose.pose.position.z = N_opt+1;
+    if (N_opt == 2) { // Number of points in the optimized system is equal to 3
+      final_MSE = as_scalar(trans(error)*error)/(N_opt+1);
+      plc_info.pose.pose.orientation.w = final_MSE;
+      // update weights, system matrices and dimension of point cloud for the covariance calculation
       N = N_opt;
       A = A_opt;
       B = B_opt;
@@ -485,10 +494,10 @@ fmat Rewrite_Radar::RANSAC() {
       }
     }
 
-    if (outlier_found) {
+    if (outlier_found) { // if there is an outlier it needs to be found and eliminated
       sorted_index = sort_index(error,"descend");
-      t = sorted_index(0);
-      // remove outlier form the measurement vactors and the system matrices
+      t = sorted_index(0); // index of the highest error
+      // remove outlier from the measurement vectors and the system matrices
       if (t==0){
         A_opt = A_opt.rows(1,N_opt);
         B_opt = B_opt.rows(1,N_opt);
@@ -538,15 +547,14 @@ fmat Rewrite_Radar::RANSAC() {
         ROS_ERROR("wrong sorted index!");
       }
 
+      plc_info.pose.covariance[outliers] = t;
       N_opt = N_opt-1;
       outliers++;
       outlier_found = false;
     }
     else {
-      final_MSE = as_scalar(sqrt(trans(error)*error));
-      odom.pose.pose.orientation.w = final_MSE;
-      plc_info.pose.pose.position.y = outliers;
-      plc_info.pose.pose.position.z = N_opt+1;
+      final_MSE = as_scalar(trans(error)*error)/(N_opt+1);
+      plc_info.pose.pose.orientation.w = final_MSE;
       N = N_opt;
       A = A_opt;
       B = B_opt;
@@ -554,14 +562,4 @@ fmat Rewrite_Radar::RANSAC() {
       return vS_opt;
     }
   }
-  final_MSE = as_scalar(sqrt(trans(error)*error));
-  odom.pose.pose.orientation.w = final_MSE;
-  plc_info.pose.pose.position.y = outliers;
-  plc_info.pose.pose.position.z = N_opt+1;
-  N = N_opt;
-  A = A_opt;
-  B = B_opt;
-  W = W_opt;
-  return vS_opt;
-
 }

@@ -19,7 +19,7 @@ public:
   Rewrite_Radar(fmat A_0, fmat B_0, ros::NodeHandle nh)
     {
       angl_vel = {0, 0, 0};
-      r_r2i = {38e-3, 9e-3, -110.4e-3};
+      r_r2i = {7.5e-3, -38e-3, -110.4e-3};
       A = A_0;
       B = B_0;
       W = B_0;
@@ -30,9 +30,8 @@ public:
       actual_weight = B_0;
       v_S = trans(A_0);
       vvel = 0.038; // radial velocity tolerance [m/s]
-      method = 3; //Options are: 1 = no slip, 2 = pinv or 3 = LS
-      LSmethod = 1; //Options are: 1 = normal, 2 = weighted
-      cov_method = 3; // Options are: 1 = const, 2 = linearisation, 3 = Monte Carlo, 4 = paper_method
+      LSmethod = 2; //Options are: 1 = normal, 2 = weighted
+      cov_method = 1; // Options are: 1 = zero, 2 = linearization, 3 = Monte Carlo
       cov_param = 1.0;
       ransac = true; // true is with RANSAC, false without RANSAC
       past_id = -1;
@@ -45,6 +44,7 @@ public:
       actual_meas = B_0;
       N = 0;
       N_opt = 0;
+      outliers = 0;
       delta_angle = 1e-4;
       delta_vel = 1e-4;
       K = datum::pi/12;
@@ -53,8 +53,8 @@ public:
       A.print("A initialized:");
       B.print("B initialized:");
       W.print("W initialized:");
-      ROS_INFO("vvel = [%f], method = [%i], LSmethod = [%i], cov_method = [%i], ransac = [%i] past_id = [%i], delta_vel = [%f], delta_angle = [%f]",
-       vvel, method, LSmethod, cov_method, ransac, past_id, delta_vel, delta_angle);
+      ROS_INFO("vvel = [%f], LSmethod = [%i], cov_method = [%i], ransac = [%i] past_id = [%i], delta_vel = [%f], delta_angle = [%f]",
+       vvel, LSmethod, cov_method, ransac, past_id, delta_vel, delta_angle);
     };
 
   void radarCallback(const ti_mmwave_rospkg::RadarScan::ConstPtr& msg);
@@ -92,7 +92,6 @@ private:
   vec r_r2i; //position vector from radar to imu frame
 
   bool ransac;
-  int method;
   int LSmethod;
   int cov_method;
   int click;
@@ -100,7 +99,7 @@ private:
 
   float K;
   int N_MC;
-
+  
   float vvel;
   float elevation;
   float azimuth;
@@ -117,6 +116,7 @@ private:
   // for covariance computation
   int N;
   int N_opt;
+  int outliers;
 
   float dv;
   float delta_angle;
