@@ -6,7 +6,6 @@ void Rewrite_Radar::imuCallback(const sensor_msgs::Imu::ConstPtr& msg){
   angl_vel(2) = msg->angular_velocity.z;
 }
 
-
 void Rewrite_Radar::radarCallback(const ti_mmwave_rospkg::RadarScan::ConstPtr& msg) {
 
   odom.header.frame_id = "odom";
@@ -53,7 +52,7 @@ void Rewrite_Radar::radarCallback(const ti_mmwave_rospkg::RadarScan::ConstPtr& m
 
     N = past_id;
     N_opt = -1;
-
+    outliers = 0;
     if (past_id > 1) { // The estimator works only if there were at least 3 points in the plc
 
 
@@ -128,7 +127,6 @@ void Rewrite_Radar::radarCallback(const ti_mmwave_rospkg::RadarScan::ConstPtr& m
     plc_info.pose.pose.position.x = past_id+1;
     plc_info.pose.pose.position.y = outliers;
     plc_info.pose.pose.position.z = N_opt+1;
-
     plc_info.header.stamp = ros::Time::now();
     points_pub.publish(plc_info);
 
@@ -345,7 +343,6 @@ fmat Rewrite_Radar::compute_M(float d_angl, int I, string variable) {
 
 fmat Rewrite_Radar::MC_error_propagation() {
 
-
   fmat az_std(N+1,1, fill::zeros);
   fmat el_std(N+1,1, fill::zeros);
   fmat az_res(N+1,1, fill::zeros);
@@ -427,6 +424,7 @@ fmat Rewrite_Radar::MC_error_propagation() {
 }
 
 fmat Rewrite_Radar::RANSAC() {
+
   fmat error;
   fmat vS_opt;
   fmat e_sorted;
@@ -457,6 +455,9 @@ fmat Rewrite_Radar::RANSAC() {
   outliers = 0;
   N_opt = N;
 
+  for (int k=0;k<36;k++){
+    plc_info.pose.covariance[k] = 0.0;
+  }
 
   for(int i = 0; i<N; i++) {
 
@@ -478,8 +479,7 @@ fmat Rewrite_Radar::RANSAC() {
 
     if (N_opt == 2) { // Number of points in the optimized system is equal to 3
       final_MSE = as_scalar(trans(error)*error)/(N_opt+1);
-      plc_info.pose.pose.orientation.w = final_MSE;
-      // update weights, system matrices and dimension of point cloud for the covariance calculation
+      odom.pose.pose.orientation.w = final_MSE;
       N = N_opt;
       A = A_opt;
       B = B_opt;
@@ -554,7 +554,7 @@ fmat Rewrite_Radar::RANSAC() {
     }
     else {
       final_MSE = as_scalar(trans(error)*error)/(N_opt+1);
-      plc_info.pose.pose.orientation.w = final_MSE;
+      odom.pose.pose.orientation.w = final_MSE;
       N = N_opt;
       A = A_opt;
       B = B_opt;

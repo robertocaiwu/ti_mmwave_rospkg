@@ -30,8 +30,8 @@ public:
       actual_weight = B_0;
       v_S = trans(A_0);
       vvel = 0.038; // radial velocity tolerance [m/s]
-      LSmethod = 2; //Options are: 1 = normal, 2 = weighted
-      cov_method = 1; // Options are: 1 = zero, 2 = linearization, 3 = Monte Carlo
+      LSmethod = 1; //Options are: 1 = normal, 2 = weighted
+      cov_method = 3; // Options are: 1 = zero, 2 = linearization, 3 = Monte Carlo
       cov_param = 1.0;
       ransac = true; // true is with RANSAC, false without RANSAC
       past_id = -1;
